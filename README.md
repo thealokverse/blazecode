@@ -1,1 +1,1 @@
-a blazing-fast terminal agent
+a lightweight terminal agent
