@@ -1,3 +1,33 @@
+Metadata-Version: 2.4
+Name: blazecode
+Version: 1.0.0
+Summary: BlazeCode: a lightweight, fast, terminal-based AI coding agent.
+Author: BlazeCode Authors
+License: MIT
+Keywords: ai,agent,cli,llm,coding
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: Software Development
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: litellm>=1.40.0
+Requires-Dist: prompt_toolkit>=3.0.43
+Requires-Dist: rich>=13.7.0
+Requires-Dist: pydantic>=2.5.0
+Requires-Dist: python-dotenv>=1.0.0
+Provides-Extra: test
+Requires-Dist: pytest>=8.0.0; extra == "test"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "test"
+Dynamic: license-file
+
 # BlazeCode
 
 BlazeCode is a lightweight, fast, terminal-based AI coding agent written in Python. It combines the simplicity of codex CLI's chat-style interface with the multi-provider flexibility of aider, in a single scrolling conversation that feels like chatting with a colleague rather than operating a full-screen TUI.
