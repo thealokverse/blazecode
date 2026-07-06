@@ -6,11 +6,14 @@ keeps configuration and sessions in simple local files.
 
 ## Install
 
+> **Note**
+> Blazecode v1 is currently available through GitHub only. PyPI support is coming in a future release.
+
 Python 3.11 or newer is required.
 
+
 ```bash
-pipx install .
-blazecode
+pip install git+https://github.com/thealokverse/blazecode.git
 ```
 
 The first launch opens a short provider wizard. It verifies the provider using
@@ -89,15 +92,7 @@ Skills are directories containing `SKILL.md`. Blazecode discovers global
 skills in `~/.blazecode/skills/` and project skills in
 `./.blazecode/skills/`. Only names and descriptions enter the base prompt;
 complete instructions are loaded when their terms match the current task.
-
-An `AGENTS.md` or `BLAZECODE.md` in the launch directory is included as project
-instructions.
-
-## Development
-
-```bash
-python -m pip install -e '.[dev]'
-pytest
-```
-
 Sessions are append-only JSONL files under `~/.blazecode/sessions/`.
+
+
+## MIT License
