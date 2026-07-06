@@ -15,6 +15,11 @@ Python 3.11 or newer is required.
 ```bash
 pip install git+https://github.com/thealokverse/blazecode.git
 ```
+Or with uv:
+
+```bash
+uv tool install git+https://github.com/thealokverse/blazecode.git
+```
 
 The first launch opens a short provider wizard. It verifies the provider using
 `GET /models`, asks for a model, and writes `~/.blazecode/config.json`.
