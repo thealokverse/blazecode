@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blazecode"
+version = "1.0.0"
+description = "A lightweight terminal coding agent"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Blazecode contributors" }]
+dependencies = [
+  "httpx>=0.27,<1",
+  "prompt-toolkit>=3.0.48,<4",
+  "rich>=13.9,<15",
+  "typer>=0.12,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+blazecode = "blazecode.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["blazecode"]
