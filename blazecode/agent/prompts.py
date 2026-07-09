@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from blazecode.skills.loader import SkillLoader
@@ -13,6 +15,9 @@ preserve project conventions, and validate changes with relevant tests.
 
 Tool rules:
 - Use read and grep to understand code before changing it.
+- When asked to explain a file, directory, or repository, always use the read
+  (and grep if needed) tools to inspect the actual sources before answering.
+  Never invent file contents or structure.
 - Use edit for precise changes to existing files and write for complete files.
 - Use bash for foreground commands only. Never start background processes.
 - Never claim a command or edit succeeded unless its tool result says it did.
@@ -22,22 +27,74 @@ Keep user-facing responses concise. Do not expose secrets. Project instructions
 below override general preferences when they do not conflict with safety.
 """
 
+_CONTEXT_LINE_LIMIT = 50
+_LISTING_LIMIT = 80
+
+
+def _truncate_lines(text: str, limit: int = _CONTEXT_LINE_LIMIT) -> str:
+    lines = text.splitlines()
+    if len(lines) <= limit:
+        return text.strip()
+    return "\n".join(lines[:limit]).rstrip() + "\n… (truncated)"
+
 
 def project_instructions(cwd: Path) -> str:
-    """Load AGENTS.md or BLAZECODE.md from the working directory."""
-    for name in ("AGENTS.md", "BLAZECODE.md"):
+    """Load AGENTS.md, BLAZECODE.md, or README.md from the working directory."""
+    for name in ("AGENTS.md", "BLAZECODE.md", "README.md"):
         path = cwd / name
         if path.is_file():
-            return path.read_text(encoding="utf-8")
+            try:
+                return _truncate_lines(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
     return ""
+
+
+def directory_listing(cwd: Path) -> str:
+    """Return a shallow listing of project files for system context."""
+    root = cwd.resolve()
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            files = result.stdout.splitlines()[:_LISTING_LIMIT]
+            extra = len(result.stdout.splitlines()) - len(files)
+            body = "\n".join(files)
+            if extra > 0:
+                body += f"\n… ({extra} more files)"
+            return body
+    except (OSError, subprocess.SubprocessError, TimeoutError):
+        pass
+    try:
+        entries = sorted(os.listdir(root))
+        visible = [
+            name + ("/" if (root / name).is_dir() else "")
+            for name in entries
+            if not name.startswith(".")
+        ][:_LISTING_LIMIT]
+        return "\n".join(visible)
+    except OSError:
+        return ""
 
 
 def build_system_prompt(cwd: Path, skill_loader: SkillLoader) -> str:
     """Build the stable system prompt for a session."""
-    sections = [BASE_PROMPT, f"Working directory: {cwd.resolve()}"]
-    instructions = project_instructions(cwd)
+    resolved = cwd.resolve()
+    sections = [BASE_PROMPT, f"Working directory: {resolved}"]
+    listing = directory_listing(resolved)
+    if listing:
+        sections.append(f"<project_files>\n{listing}\n</project_files>")
+    instructions = project_instructions(resolved)
     if instructions:
-        sections.append(f"<project_instructions>\n{instructions}\n</project_instructions>")
+        sections.append(
+            f"<project_instructions>\n{instructions}\n</project_instructions>"
+        )
     sections.append(skill_loader.summary())
     sections.append(
         "When a skill is relevant, its complete instructions will be supplied "
@@ -55,4 +112,3 @@ def relevant_skill_prompt(prompt: str, loader: SkillLoader) -> str:
         f"<skill name={skill.name!r}>\n{skill.read()}\n</skill>" for skill in selected
     ]
     return "\n\n".join(blocks)
-

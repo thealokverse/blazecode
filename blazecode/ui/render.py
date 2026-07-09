@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from rich.console import Console, Group
+from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -46,7 +46,11 @@ class Renderer:
         """Append and render streamed model text."""
         self._buffer += text
         if self._live:
-            self._live.update(self._renderable(), refresh=True)
+            try:
+                self._live.update(self._renderable(), refresh=True)
+            except Exception:
+                # Never let a render glitch kill the agent stream.
+                pass
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
         """Render a compact tool call line."""
@@ -64,7 +68,10 @@ class Renderer:
     def on_tool_result(self, name: str, result: ToolResult) -> None:
         """Render tool output or an edit diff."""
         if result.diff:
-            self.console.print(Syntax(result.diff, "diff", theme="ansi_dark"))
+            try:
+                self.console.print(Syntax(result.diff, "diff", theme="ansi_dark"))
+            except Exception:
+                self.console.print(result.diff)
         elif result.is_error:
             self.console.print(f"  {result.content}", style=ERROR)
         else:
@@ -95,13 +102,27 @@ class Renderer:
 
     def _renderable(self) -> Group:
         label = Text(f"blaze {self.mascot.face}", style=ACCENT)
-        body = Markdown(self._buffer) if self._buffer else Text("…", style=MUTED)
+        body = _safe_markdown(self._buffer) if self._buffer else Text("…", style=MUTED)
         return Group(label, body)
 
     def _stop_live(self) -> None:
         if self._live:
-            self._live.stop()
+            try:
+                self._live.stop()
+            except Exception:
+                pass
             self._live = None
+
+
+def _safe_markdown(text: str) -> RenderableType:
+    """Render markdown, tolerating incomplete fences and malformed fragments."""
+    display = text
+    if display.count("```") % 2 == 1:
+        display = display + "\n```"
+    try:
+        return Markdown(display)
+    except Exception:
+        return Text(text)
 
 
 def _tool_target(name: str, arguments: dict[str, Any]) -> str:
@@ -109,11 +130,14 @@ def _tool_target(name: str, arguments: dict[str, Any]) -> str:
         value = arguments.get(key)
         if isinstance(value, str):
             return value if len(value) <= 120 else value[:117] + "…"
-    safe = {
-        key: ("…" if key in {"content", "new_string", "old_string"} else value)
-        for key, value in arguments.items()
-    }
-    return json.dumps(safe, ensure_ascii=False)[:120]
+    try:
+        safe = {
+            key: ("…" if key in {"content", "new_string", "old_string"} else value)
+            for key, value in arguments.items()
+        }
+        return json.dumps(safe, ensure_ascii=False, default=str)[:120]
+    except (TypeError, ValueError):
+        return "{…}"
 
 
 def _tool_verb(name: str) -> str:
@@ -124,4 +148,3 @@ def _tool_verb(name: str) -> str:
         "edit": "editing",
         "bash": "running",
     }.get(name, name)
-

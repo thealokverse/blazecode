@@ -54,11 +54,76 @@ class Error:
 Event = TextDelta | ToolCallStart | ToolResult | Done | Error
 
 
-def _headers(api_key: str | None) -> dict[str, str]:
-    headers = {"Accept": "text/event-stream", "Content-Type": "application/json"}
+def _headers(
+    api_key: str | None,
+    base_url: str = "",
+    *,
+    stream: bool = False,
+) -> dict[str, str]:
+    headers = {
+        "Accept": "text/event-stream" if stream else "application/json",
+        "Content-Type": "application/json",
+    }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    # OpenRouter requires attribution headers for some models/routes.
+    if "openrouter.ai" in base_url:
+        headers["HTTP-Referer"] = "https://github.com/thealokverse/blazecode"
+        headers["X-Title"] = "Blazecode"
     return headers
+
+
+def _parse_arguments(raw: str) -> dict[str, Any]:
+    """Parse tool-call arguments, tolerating empty or slightly malformed JSON."""
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        # Some providers emit trailing commas or partial objects; try a soft close.
+        repaired = text.rstrip(", \n\r\t")
+        if not repaired.endswith("}"):
+            repaired = repaired + "}"
+        if not repaired.startswith("{"):
+            repaired = "{" + repaired
+        try:
+            value = json.loads(repaired)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"arguments are not valid JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("arguments must decode to an object")
+    return value
+
+
+def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
+    """Merge one streamed tool-call delta into the accumulator."""
+    if not isinstance(part, dict):
+        return
+    try:
+        index = int(part.get("index", 0))
+    except (TypeError, ValueError):
+        index = 0
+    current = calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+    call_id = part.get("id")
+    if call_id:
+        current["id"] += str(call_id)
+    function = part.get("function")
+    if function is None:
+        return
+    if not isinstance(function, dict):
+        return
+    name = function.get("name")
+    if name:
+        current["name"] += str(name)
+    arguments = function.get("arguments")
+    if arguments is None:
+        return
+    if isinstance(arguments, dict):
+        # Some gateways send already-decoded argument objects.
+        current["arguments"] = json.dumps(arguments)
+    else:
+        current["arguments"] += str(arguments)
 
 
 async def list_models(
@@ -72,7 +137,8 @@ async def list_models(
     session = client or httpx.AsyncClient(timeout=15)
     try:
         response = await session.get(
-            f"{base_url.rstrip('/')}/models", headers=_headers(api_key)
+            f"{base_url.rstrip('/')}/models",
+            headers=_headers(api_key, base_url),
         )
         response.raise_for_status()
         payload = response.json()
@@ -113,28 +179,32 @@ async def stream_completion(
         async with session.stream(
             "POST",
             f"{base_url.rstrip('/')}/chat/completions",
-            headers=_headers(api_key),
+            headers=_headers(api_key, base_url, stream=True),
             json=payload,
         ) as response:
             if response.is_error:
                 body = (await response.aread()).decode("utf-8", errors="replace")
                 try:
                     detail = json.loads(body).get("error", {}).get("message", body)
-                except (json.JSONDecodeError, AttributeError):
+                except (json.JSONDecodeError, AttributeError, TypeError):
                     detail = body
                 yield Error(f"HTTP {response.status_code}: {str(detail)[:500]}")
                 return
             async for line in response.aiter_lines():
-                if not line.startswith("data:"):
+                if not line or not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
+                if not data:
+                    continue
                 if data == "[DONE]":
                     break
                 try:
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
-                    yield Error("provider returned malformed streaming JSON")
-                    return
+                    # One bad SSE frame must not abort the whole stream.
+                    continue
+                if not isinstance(chunk, dict):
+                    continue
                 if chunk.get("error"):
                     provider_error = chunk["error"]
                     detail = (
@@ -144,48 +214,53 @@ async def stream_completion(
                     )
                     yield Error(f"provider error: {str(detail)[:500]}")
                     return
-                if chunk.get("usage"):
+                if chunk.get("usage") and isinstance(chunk["usage"], dict):
                     usage = {
                         key: int(value)
                         for key, value in chunk["usage"].items()
                         if isinstance(value, int)
                     }
-                choices = chunk.get("choices") or []
-                if not choices:
+                choices = chunk.get("choices")
+                if not choices or not isinstance(choices, list):
                     continue
                 choice = choices[0]
+                if not isinstance(choice, dict):
+                    continue
                 finish_reason = choice.get("finish_reason") or finish_reason
                 delta = choice.get("delta") or {}
+                if not isinstance(delta, dict):
+                    continue
                 content = delta.get("content")
                 if content:
                     yield TextDelta(str(content))
-                for part in delta.get("tool_calls") or []:
-                    index = int(part.get("index", 0))
-                    current = calls.setdefault(
-                        index, {"id": "", "name": "", "arguments": ""}
-                    )
-                    if part.get("id"):
-                        current["id"] += str(part["id"])
-                    function = part.get("function") or {}
-                    if function.get("name"):
-                        current["name"] += str(function["name"])
-                    if function.get("arguments"):
-                        current["arguments"] += str(function["arguments"])
+                tool_calls = delta.get("tool_calls")
+                if tool_calls is None:
+                    continue
+                if not isinstance(tool_calls, list):
+                    continue
+                for part in tool_calls:
+                    try:
+                        _accumulate_tool_part(calls, part)
+                    except Exception:
+                        continue
         for index in sorted(calls):
             call = calls[index]
+            name = call.get("name") or ""
+            if not name:
+                continue
             try:
-                arguments = json.loads(call["arguments"] or "{}")
-                if not isinstance(arguments, dict):
-                    raise ValueError("arguments must decode to an object")
-            except (json.JSONDecodeError, ValueError) as exc:
-                yield Error(f"invalid arguments for tool {call['name']!r}: {exc}")
-                return
+                arguments = _parse_arguments(call.get("arguments", ""))
+            except ValueError as exc:
+                yield Error(f"invalid arguments for tool {name!r}: {exc}")
+                continue
             yield ToolCallStart(
-                call["id"] or f"call_{index}", call["name"], arguments
+                call.get("id") or f"call_{index}", name, arguments
             )
         yield Done(finish_reason, usage)
-    except (httpx.HTTPError, TimeoutError) as exc:
+    except (httpx.HTTPError, TimeoutError, OSError) as exc:
         yield Error(f"provider request failed: {exc}")
+    except Exception as exc:
+        yield Error(f"provider stream failed: {exc}")
     finally:
         if owned:
             await session.aclose()

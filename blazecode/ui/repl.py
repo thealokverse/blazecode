@@ -36,6 +36,7 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
         history=FileHistory(str(history_path)),
         completer=slash_completer(),
         complete_while_typing=True,
+        complete_in_thread=True,
     )
     console.print(f"blaze {blaze.face}  {working}", style="bright_cyan")
     while True:

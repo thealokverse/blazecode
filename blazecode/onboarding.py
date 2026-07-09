@@ -15,8 +15,13 @@ from blazecode.mascot import FACES, State
 
 PRESETS = {
     1: ("openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
-    2: ("openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
-    3: ("local", "http://localhost:11434/v1", None),
+    2: (
+        "google",
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "GEMINI_API_KEY",
+    ),
+    3: ("openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    4: ("local", "http://localhost:11434/v1", None),
 }
 
 
@@ -28,6 +33,9 @@ def verify_provider(base_url: str, api_key: str) -> list[str]:
     headers = (
         {"Authorization": f"Bearer {key}"} if key and key != "none" else {}
     )
+    if "openrouter.ai" in base_url:
+        headers["HTTP-Referer"] = "https://github.com/thealokverse/blazecode"
+        headers["X-Title"] = "Blazecode"
     with httpx.Client(timeout=15.0) as client:
         response = client.get(f"{base_url.rstrip('/')}/models", headers=headers)
         response.raise_for_status()
@@ -53,11 +61,14 @@ def run_onboarding(
         output.print(
             "  Which provider are you using?\n"
             "  1. OpenAI\n"
-            "  2. OpenRouter\n"
-            "  3. Ollama (local)\n"
-            "  4. Other (custom base URL)\n"
+            "  2. Google (Gemini)\n"
+            "  3. OpenRouter\n"
+            "  4. Ollama (local)\n"
+            "  5. Other (custom base URL)\n"
         )
-        choice = IntPrompt.ask("  ›", choices=["1", "2", "3", "4"], console=output)
+        choice = IntPrompt.ask(
+            "  ›", choices=["1", "2", "3", "4", "5"], console=output
+        )
         try:
             provider = _collect_provider(choice, output)
             output.print("\n  Fetching available models...")

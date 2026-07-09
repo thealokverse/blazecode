@@ -47,10 +47,16 @@ class EditTool(Tool):
                 raise ValueError("replace_all must be a boolean")
             if not old_string:
                 raise ValueError("old_string cannot be empty")
-            old_content = path.read_text(encoding="utf-8")
+            try:
+                old_content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(f"file is not valid UTF-8: {exc}") from exc
             occurrences = old_content.count(old_string)
             if occurrences == 0:
-                raise ValueError("old_string was not found")
+                raise ValueError(
+                    "old_string was not found. Re-read the file and match "
+                    "whitespace and indentation exactly, then retry."
+                )
             if occurrences > 1 and not replace_all:
                 raise ValueError(
                     f"old_string occurs {occurrences} times; provide more context "
@@ -59,7 +65,7 @@ class EditTool(Tool):
             new_content = old_content.replace(
                 old_string, new_string, -1 if replace_all else 1
             )
-            path.write_text(new_content, encoding="utf-8")
+            path.write_text(new_content, encoding="utf-8", newline="")
             relative = path.relative_to(cwd.resolve())
             diff = "".join(
                 unified_diff(
@@ -70,6 +76,5 @@ class EditTool(Tool):
                 )
             )
             return ToolResult(f"Edited {relative}", diff=diff)
-        except (KeyError, OSError, UnicodeDecodeError, ValueError) as exc:
+        except (KeyError, OSError, UnicodeDecodeError, UnicodeEncodeError, ValueError) as exc:
             return error_result(exc)
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -39,12 +40,13 @@ async def _run(
     if prompt is None:
         await run_repl(settings)
         return
+    # Headless (-p): bypass the REPL entirely, auto-approve tools, stream to stdout.
     renderer = Renderer(console)
     agent = AgentLoop(
         settings,
-        Path.cwd(),
+        Path.cwd().resolve(),
         SessionStore(),
-        ApprovalManager(settings.approval_mode, renderer.approve),
+        ApprovalManager("auto"),
         renderer,
     )
     await agent.run(prompt)
@@ -70,7 +72,7 @@ def main(
 ) -> None:
     """Start Blazecode or run a single prompt."""
     del version
-    console = Console()
+    console = Console(force_terminal=sys.stdout.isatty())
     try:
         settings = run_onboarding(console=console) if needs_onboarding() else Settings.load()
         if provider:
