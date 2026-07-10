@@ -27,7 +27,7 @@ Keep user-facing responses concise. Do not expose secrets. Project instructions
 below override general preferences when they do not conflict with safety.
 """
 
-_CONTEXT_LINE_LIMIT = 50
+_CONTEXT_LINE_LIMIT = 100
 _LISTING_LIMIT = 80
 
 

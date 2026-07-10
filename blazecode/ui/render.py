@@ -3,17 +3,27 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 
-from blazecode.mascot import Mascot, State, blaze
+from blazecode import __version__
+from blazecode.mascot import FACES, Mascot, State, blaze
 from blazecode.tools.base import ToolResult
 from blazecode.ui.theme import ACCENT, ERROR, MUTED, SUCCESS
+
+_STATUS: dict[State, str] = {
+    State.THINKING: "thinking...",
+    State.SEARCHING: "searching...",
+    State.EDITING: "writing...",
+    State.DEBUGGING: "debugging...",
+}
 
 
 class Renderer:
@@ -24,11 +34,13 @@ class Renderer:
         self.mascot = mascot
         self._buffer = ""
         self._live: Live | None = None
+        self._activity: str | None = None
 
     def on_response_start(self) -> None:
-        """Start a fresh live response region."""
+        """Start a fresh live response region with a thinking status."""
         self._stop_live()
         self._buffer = ""
+        self._activity = _STATUS.get(State.THINKING)
         self._live = Live(
             self._renderable(),
             console=self.console,
@@ -38,30 +50,34 @@ class Renderer:
         self._live.start()
 
     def on_state(self, state: State) -> None:
-        """Update the live mascot state."""
+        """Update the live mascot state and activity label."""
+        if state in _STATUS and not self._buffer:
+            self._activity = _STATUS[state]
         if self._live:
             self._live.update(self._renderable(), refresh=True)
 
     def on_text(self, text: str) -> None:
-        """Append and render streamed model text."""
+        """Append streamed model text, wiping any status label."""
         self._buffer += text
+        self._activity = None
         if self._live:
             try:
                 self._live.update(self._renderable(), refresh=True)
             except Exception:
-                # Never let a render glitch kill the agent stream.
                 pass
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
-        """Render a compact tool call line."""
+        """Render a stateful tool activity line before the result."""
         self._stop_live()
+        self._activity = None
+        verb = _STATUS.get(self.mascot.state) or f"{_tool_verb(name)}..."
         target = _tool_target(name, arguments)
         self.console.print(
             Text.assemble(
                 ("blaze ", MUTED),
                 (self.mascot.face + " ", ACCENT),
-                (f"{_tool_verb(name)} ", "bold"),
-                (target, MUTED),
+                (verb, "bold"),
+                (f"  {target}" if target else "", MUTED),
             )
         )
 
@@ -83,11 +99,13 @@ class Renderer:
     def on_error(self, message: str) -> None:
         """Render an unrecoverable failure."""
         self._stop_live()
+        self._activity = None
         self.console.print(f"blaze {self.mascot.face} {message}", style=ERROR)
 
     def on_complete(self) -> None:
-        """Finalize any active live region."""
+        """Finalize any active live region and show the success face."""
         self._stop_live()
+        self._activity = None
         if self.mascot.state == State.SUCCESS:
             self.console.print(
                 f"blaze {self.mascot.face}", style=SUCCESS, highlight=False
@@ -101,9 +119,12 @@ class Renderer:
         return Confirm.ask(f"Allow [bold]{name}[/bold] {target}?", default=False)
 
     def _renderable(self) -> Group:
-        label = Text(f"blaze {self.mascot.face}", style=ACCENT)
-        body = _safe_markdown(self._buffer) if self._buffer else Text("…", style=MUTED)
-        return Group(label, body)
+        if self._buffer:
+            label = Text(f"blaze {self.mascot.face}", style=ACCENT)
+            body = _safe_markdown(self._buffer)
+            return Group(label, body)
+        status = self._activity or "…"
+        return Group(Text(f"blaze {self.mascot.face} {status}", style=ACCENT))
 
     def _stop_live(self) -> None:
         if self._live:
@@ -112,6 +133,37 @@ class Renderer:
             except Exception:
                 pass
             self._live = None
+
+
+def render_header(console: Console, model: str, cwd: Path) -> None:
+    """Print the Codex-style startup status box (REPL only)."""
+    home = Path.home().resolve()
+    resolved = cwd.resolve()
+    if resolved == home:
+        directory = "~"
+    else:
+        try:
+            directory = "~/" + str(resolved.relative_to(home))
+        except ValueError:
+            directory = str(resolved)
+
+    face = FACES[State.THINKING]
+    body = Text()
+    body.append(f"{face} Blazecode (v{__version__})\n\n", style="bold")
+    body.append("model:     ", style=MUTED)
+    body.append(f"{model}", style=ACCENT)
+    body.append("   /model to change\n", style=MUTED)
+    body.append("directory: ", style=MUTED)
+    body.append(directory, style=ACCENT)
+    console.print(
+        Panel(
+            body,
+            border_style=ACCENT,
+            padding=(0, 1),
+            expand=False,
+        )
+    )
+    console.print()
 
 
 def _safe_markdown(text: str) -> RenderableType:
@@ -142,9 +194,9 @@ def _tool_target(name: str, arguments: dict[str, Any]) -> str:
 
 def _tool_verb(name: str) -> str:
     return {
-        "read": "reading",
+        "read": "searching",
         "grep": "searching",
         "write": "writing",
-        "edit": "editing",
-        "bash": "running",
+        "edit": "writing",
+        "bash": "debugging",
     }.get(name, name)

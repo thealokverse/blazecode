@@ -20,7 +20,7 @@ from blazecode.permissions.approval import ApprovalManager
 from blazecode.session.store import SessionStore
 from blazecode.skills.loader import SkillLoader
 from blazecode.ui.completer import COMMANDS, slash_completer
-from blazecode.ui.render import Renderer
+from blazecode.ui.render import Renderer, render_header
 
 
 async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
@@ -38,13 +38,13 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
         complete_while_typing=True,
         complete_in_thread=True,
     )
-    console.print(f"blaze {blaze.face}  {working}", style="bright_cyan")
+    render_header(console, settings.default_model, working)
     while True:
         blaze.set_state(State.IDLE)
         try:
             text = (
                 await session.prompt_async(
-                    [("class:prompt", f"blaze {blaze.face} › ")],
+                    [("class:prompt", f"blaze {blaze.face}  ❯ ")],
                 )
             ).strip()
         except (EOFError, KeyboardInterrupt):
