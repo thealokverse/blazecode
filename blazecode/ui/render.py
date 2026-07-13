@@ -6,11 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console, Group, RenderableType
+from rich.console import Console
 from rich.live import Live
-from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.text import Text
 
 from blazecode import __version__
@@ -29,102 +27,117 @@ _STATUS: dict[State, str] = {
 class Renderer:
     """Render observer callbacks from the agent loop."""
 
-    def __init__(self, console: Console | None = None, mascot: Mascot = blaze) -> None:
+    def __init__(
+        self,
+        console: Console | None = None,
+        mascot: Mascot = blaze,
+        *,
+        interactive: bool = True,
+    ) -> None:
         self.console = console or Console()
         self.mascot = mascot
-        self._buffer = ""
+        self.interactive = interactive
         self._live: Live | None = None
         self._activity: str | None = None
+        self._line_open = False
+        self._tool_target = ""
 
     def on_response_start(self) -> None:
         """Start a fresh live response region with a thinking status."""
-        self._stop_live()
-        self._buffer = ""
         self._activity = _STATUS.get(State.THINKING)
-        self._live = Live(
-            self._renderable(),
-            console=self.console,
-            refresh_per_second=20,
-            transient=False,
-        )
-        self._live.start()
+        self._start_live()
 
     def on_state(self, state: State) -> None:
         """Update the live mascot state and activity label."""
-        if state in _STATUS and not self._buffer:
+        if state in _STATUS:
             self._activity = _STATUS[state]
-        if self._live:
-            self._live.update(self._renderable(), refresh=True)
+            self._start_live()
+        self._refresh_live()
 
     def on_text(self, text: str) -> None:
-        """Append streamed model text, wiping any status label."""
-        self._buffer += text
-        self._activity = None
-        if self._live:
-            try:
-                self._live.update(self._renderable(), refresh=True)
-            except Exception:
-                pass
-
-    def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
-        """Render a stateful tool activity line before the result."""
+        """Clear activity status and stream the response without UI chrome."""
         self._stop_live()
         self._activity = None
-        verb = _STATUS.get(self.mascot.state) or f"{_tool_verb(name)}..."
-        target = _tool_target(name, arguments)
-        self.console.print(
-            Text.assemble(
-                ("blaze ", MUTED),
-                (self.mascot.face + " ", ACCENT),
-                (verb, "bold"),
-                (f"  {target}" if target else "", MUTED),
-            )
-        )
+        self.console.print(Text(text), end="", soft_wrap=True)
+        self._line_open = not text.endswith("\n")
+
+    def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
+        """Keep the state indicator visible while the tool executes."""
+        self._tool_target = _tool_target(name, arguments)
+        self._refresh_live()
 
     def on_tool_result(self, name: str, result: ToolResult) -> None:
-        """Render tool output or an edit diff."""
-        if result.diff:
-            try:
-                self.console.print(Syntax(result.diff, "diff", theme="ansi_dark"))
-            except Exception:
-                self.console.print(result.diff)
-        elif result.is_error:
-            self.console.print(f"  {result.content}", style=ERROR)
+        """Clear activity and show one compact completed-tool line."""
+        self._stop_live()
+        self._activity = None
+        if not self.interactive:
+            return
+        self._finish_line()
+        summary = _tool_summary(name)
+        target = self._tool_target
+        self._tool_target = ""
+        suffix = f" {target}" if target else ""
+        if result.is_error:
+            self.console.print(f"  ↳ {summary}{suffix} failed", style=ERROR)
         else:
-            summary = result.content
-            if len(summary) > 1200:
-                summary = summary[:1200] + "\n… output truncated in display"
-            self.console.print(Text("  " + summary.replace("\n", "\n  "), style=MUTED))
+            self.console.print(f"  ↳ {summary}{suffix}", style=MUTED)
 
     def on_error(self, message: str) -> None:
         """Render an unrecoverable failure."""
         self._stop_live()
         self._activity = None
-        self.console.print(f"blaze {self.mascot.face} {message}", style=ERROR)
+        self._finish_line()
+        self.console.print(message, style=ERROR)
 
     def on_complete(self) -> None:
-        """Finalize any active live region and show the success face."""
+        """Finalize an interactive turn with its terminal state indicator."""
         self._stop_live()
         self._activity = None
+        self._finish_line()
+        if not self.interactive:
+            return
         if self.mascot.state == State.SUCCESS:
-            self.console.print(
-                f"blaze {self.mascot.face}", style=SUCCESS, highlight=False
-            )
+            self.console.print(f"blaze {self.mascot.face}", style=SUCCESS)
+        elif self.mascot.state == State.ERROR:
+            self.console.print(f"blaze {self.mascot.face}", style=ERROR)
+        else:
+            return
+        self.console.print()
 
     def approve(self, name: str, arguments: dict[str, Any]) -> bool:
         """Ask the user before a mutating tool call."""
         from rich.prompt import Confirm
 
         target = _tool_target(name, arguments)
-        return Confirm.ask(f"Allow [bold]{name}[/bold] {target}?", default=False)
+        self._stop_live()
+        try:
+            return Confirm.ask(f"Allow [bold]{name}[/bold] {target}?", default=False)
+        finally:
+            self._start_live()
 
-    def _renderable(self) -> Group:
-        if self._buffer:
-            label = Text(f"blaze {self.mascot.face}", style=ACCENT)
-            body = _safe_markdown(self._buffer)
-            return Group(label, body)
+    def _renderable(self) -> Text:
         status = self._activity or "…"
-        return Group(Text(f"blaze {self.mascot.face} {status}", style=ACCENT))
+        return Text(f"{self.mascot.face} {status}", style=ACCENT)
+
+    def _start_live(self) -> None:
+        if not self.interactive or self._live:
+            return
+        self._live = Live(
+            self._renderable(),
+            console=self.console,
+            refresh_per_second=20,
+            transient=True,
+        )
+        self._live.start()
+
+    def _refresh_live(self) -> None:
+        if self._live:
+            self._live.update(self._renderable(), refresh=True)
+
+    def _finish_line(self) -> None:
+        if self._line_open:
+            self.console.print()
+            self._line_open = False
 
     def _stop_live(self) -> None:
         if self._live:
@@ -166,17 +179,6 @@ def render_header(console: Console, model: str, cwd: Path) -> None:
     console.print()
 
 
-def _safe_markdown(text: str) -> RenderableType:
-    """Render markdown, tolerating incomplete fences and malformed fragments."""
-    display = text
-    if display.count("```") % 2 == 1:
-        display = display + "\n```"
-    try:
-        return Markdown(display)
-    except Exception:
-        return Text(text)
-
-
 def _tool_target(name: str, arguments: dict[str, Any]) -> str:
     for key in ("path", "command"):
         value = arguments.get(key)
@@ -192,11 +194,11 @@ def _tool_target(name: str, arguments: dict[str, Any]) -> str:
         return "{…}"
 
 
-def _tool_verb(name: str) -> str:
+def _tool_summary(name: str) -> str:
     return {
-        "read": "searching",
-        "grep": "searching",
-        "write": "writing",
-        "edit": "writing",
-        "bash": "debugging",
-    }.get(name, name)
+        "read": "Read",
+        "grep": "Searched",
+        "write": "Wrote",
+        "edit": "Edited",
+        "bash": "Ran",
+    }.get(name, name.capitalize())

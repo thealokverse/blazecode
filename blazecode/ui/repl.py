@@ -44,11 +44,12 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
         try:
             text = (
                 await session.prompt_async(
-                    [("class:prompt", f"blaze {blaze.face}  ❯ ")],
+                    [("class:prompt", f"blaze {blaze.face} ❯ ")],
                 )
             ).strip()
         except (EOFError, KeyboardInterrupt):
             console.print()
+            console.print("Bye! Catch you later.")
             return
         if not text:
             continue
@@ -61,6 +62,7 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
             approval.mode = settings.approval_mode
             agent.settings = settings
             continue
+        console.print()
         await agent.run(text)
 
 
@@ -74,6 +76,7 @@ async def _command(
 ) -> tuple[bool, Settings]:
     command, _, argument = text.partition(" ")
     if command == "/exit":
+        console.print("Bye! Catch you later.")
         return True, settings
     if command == "/help":
         table = Table(show_header=False, box=None)

@@ -78,8 +78,8 @@ class AgentLoop:
             provider = self.settings.provider()
             api_messages = self._api_messages(extra_skills)
             tool_definitions = [tool.definition() for tool in TOOLS.values()]
-            self._state(State.THINKING)
             self.observer.on_response_start()
+            self._state(State.THINKING)
             text, calls, error = await self._collect_stream(
                 provider, api_messages, tool_definitions
             )

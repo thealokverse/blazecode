@@ -41,7 +41,7 @@ async def _run(
         await run_repl(settings)
         return
     # Headless (-p): bypass the REPL entirely, auto-approve tools, stream to stdout.
-    renderer = Renderer(console)
+    renderer = Renderer(console, interactive=False)
     agent = AgentLoop(
         settings,
         Path.cwd().resolve(),
