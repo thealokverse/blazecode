@@ -137,33 +137,6 @@ Paths stay inside the working directory. Mutating tools go through the approval 
 
 Project guidance is picked up from `AGENTS.md`, `BLAZECODE.md`, or `README.md`.
 
----
-
-## Releases & packaging
-
-GitHub Releases ship platform archives:
-
-```text
-blazecode-<version>-linux-x86_64.tar.gz
-blazecode-<version>-linux-arm64.tar.gz
-blazecode-<version>-darwin-x86_64.tar.gz
-blazecode-<version>-darwin-arm64.tar.gz
-SHA256SUMS
-```
-
-Build locally:
-
-```bash
-./scripts/build_release.sh
-# → dist/release/
-```
-
-Tag a version to publish via CI:
-
-```bash
-git tag v1.1.0
-git push origin v1.1.0
-```
 
 ---
 
