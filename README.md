@@ -9,7 +9,7 @@ blaze (•‿•) ❯
 ```
 
 <p align="center">
-  <img src="./blazecode.mp4" alt="Blazecode demo" width="85%" />
+  <img src="./assets/blazecode.mp4" alt="Blazecode demo" width="85%" />
 </p>
 
 <p align="center"><sub>Blazecode in action</sub></p>
