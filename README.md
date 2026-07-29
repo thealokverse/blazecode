@@ -1,12 +1,18 @@
-# BlazeCode
+# Blazecode
 
-**A lightweight, blazing-fast terminal coding agent.**
+**A lightweight terminal coding agent.**
 
-BlazeCode streams responses from OpenAI-compatible APIs, edits your project with a small set of tools, and keeps configuration local. No electron. No bloat. Just a fast CLI that feels at home in the terminal.
+Blazecode streams responses from OpenAI-compatible APIs, edits your project with a small set of tools, and keeps configuration local. 
 
 ```text
-blaze (•̀ᴗ•́) ❯
+blaze (•‿•) ❯
 ```
+
+<p align="center">
+  <img src="./blazecode.mp4" alt="Blazecode demo" width="85%" />
+</p>
+
+<p align="center"><sub>Blazecode in action</sub></p>
 
 ---
 
