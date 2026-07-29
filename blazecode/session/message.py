@@ -25,6 +25,10 @@ class Message:
         value = asdict(self)
         if api:
             value.pop("created_at", None)
+            if value.get("content") is None and (
+                self.tool_calls or self.role == "tool"
+            ):
+                value["content"] = ""
         return {
             key: item
             for key, item in value.items()
@@ -42,4 +46,3 @@ class Message:
             name=value.get("name"),
             created_at=str(value.get("created_at") or datetime.now(UTC).isoformat()),
         )
-

@@ -1,45 +1,74 @@
-# Blazecode
+# BlazeCode
 
-Blazecode is a lightweight terminal coding agent written in Python. It streams
-responses from OpenAI-compatible APIs, exposes exactly five code tools, and
-keeps configuration and sessions in simple local files.
+**A lightweight, blazing-fast terminal coding agent.**
+
+BlazeCode streams responses from OpenAI-compatible APIs, edits your project with a small set of tools, and keeps configuration local. No electron. No bloat. Just a fast CLI that feels at home in the terminal.
+
+```text
+blaze (•̀ᴗ•́) ❯
+```
+
+---
 
 ## Install
 
-> **Note**
-> Blazecode v1 is currently available through GitHub only. PyPI support is coming in a future release.
-
-Python 3.11 or newer is required.
-
+**One-liner** (Linux & macOS):
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh | bash
+```
+
+This installs a self-contained build into `~/.local/share/blazecode` and links the `blazecode` binary to `~/.local/bin`.  
+Your config and sessions in `~/.blazecode` are never touched.
+
+| Action | Command |
+|--------|---------|
+| Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/update.sh \| bash` |
+| Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/uninstall.sh \| bash` |
+
+Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
+
+### Other install methods
+
+```bash
+# pip (from GitHub)
 pip install git+https://github.com/thealokverse/blazecode.git
-```
-Or with uv:
 
-```bash
+# uv
 uv tool install git+https://github.com/thealokverse/blazecode.git
+
+# pinned installer version
+BLAZECODE_VERSION=1.1.0 curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh | bash
 ```
 
-The first launch opens a short provider wizard. It verifies the provider using
-`GET /models`, asks for a model, and writes `~/.blazecode/config.json`.
+---
 
-Run one prompt without entering the REPL:
+## Quick start
 
 ```bash
-blazecode -p "Explain this repository"
+blazecode                          # interactive REPL (onboarding on first run)
+blazecode -p "Explain this repo"   # one-shot prompt
+blazecode --version
+blazecode --provider openrouter --model anthropic/claude-sonnet-4
 ```
 
-Override a configured provider or model for one invocation:
+First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.ai, Kimi, Ollama, or custom) and writes `~/.blazecode/config.json`.
 
-```bash
-blazecode --provider openrouter --model anthropic/claude-sonnet-4.6
-```
+---
 
-## Providers and configuration
+## Features
 
-Blazecode v1 uses the OpenAI Chat Completions protocol. OpenAI, OpenRouter,
-Groq, DeepSeek, Ollama, LM Studio, and compatible gateways use the same client.
+- **Streaming** responses with a live status mascot
+- **Five tools**: `read`, `write`, `edit`, `bash`, `grep`
+- **Providers**: OpenAI-compatible endpoints (cloud + local)
+- **Approvals**: ask / auto / plan, toggled with `/approval`
+- **Sessions**: append-only JSONL under `~/.blazecode/sessions`
+- **Skills**: optional `SKILL.md` packs, loaded when relevant
+- **Compaction**: keeps context lean on long chats
+
+---
+
+## Configuration
 
 ```json
 {
@@ -54,7 +83,7 @@ Groq, DeepSeek, Ollama, LM Studio, and compatible gateways use the same client.
       "models": ["gpt-4.1", "gpt-4.1-mini"]
     },
     {
-      "name": "local",
+      "name": "ollama",
       "base_url": "http://localhost:11434/v1",
       "api_key": "none",
       "models": ["qwen2.5-coder:7b"]
@@ -63,41 +92,102 @@ Groq, DeepSeek, Ollama, LM Studio, and compatible gateways use the same client.
 }
 ```
 
-Use `env:VARIABLE` for keys when possible. A directly entered key is stored in
-the configuration with `0600` permissions and is never printed in full.
-`approval_mode` is `ask`, `auto`, or the read-only `plan`.
+Prefer `env:VARIABLE` for API keys. Inline keys are stored with `0600` permissions and never printed in full.
 
-Use `/provider` to add or replace a provider and `/models` to switch models
-without restarting. A custom provider needs a unique name, its API base URL,
-and optionally an API key and fallback model list.
+| `approval_mode` | Behavior |
+|-----------------|----------|
+| `ask` | Confirm mutating tools (`write` / `edit` / `bash`) |
+| `auto` | Allow mutations without prompts |
+| `plan` | Read-only |
+
+---
 
 ## Terminal commands
 
-Typing `/` opens a fuzzy completion menu.
+Type `/` for fuzzy completion.
 
 | Command | Purpose |
-|---|---|
+|---------|---------|
 | `/help` | List commands |
-| `/status` | Show provider, model, approval, tokens, and mascot state |
+| `/status` | Provider, model, approval, tokens, mascot |
+| `/approval on\|off` | Toggle confirmation for dangerous actions |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
-| `/skills` | List skills or install one with `/skills add <path>` |
-| `/export` | Export the session to Markdown |
+| `/skills` | List skills; `/skills add <path>` installs one |
+| `/export` | Export session to Markdown |
 | `/clear` | Start a fresh session |
-| `/resume` | Resume a saved JSONL session |
-| `/exit` | Exit |
+| `/resume` | Resume a saved session |
+| `/exit` | Quit |
 
-## Tools, skills, and project instructions
+---
 
-The model can call `read`, `write`, `edit`, `bash`, and `grep`. Read and search
-stay within the launch directory. Write, edit, and bash pass through the single
-approval gate. Bash commands are foreground-only and time-bounded.
+## Tools & skills
 
-Skills are directories containing `SKILL.md`. Blazecode discovers global
-skills in `~/.blazecode/skills/` and project skills in
-`./.blazecode/skills/`. Only names and descriptions enter the base prompt;
-complete instructions are loaded when their terms match the current task.
-Sessions are append-only JSONL files under `~/.blazecode/sessions/`.
+| Tool | Role |
+|------|------|
+| `read` | Read a file (offset/limit) |
+| `write` | Create or replace a file |
+| `edit` | Exact string replacement |
+| `bash` | Foreground shell command (timeout) |
+| `grep` | Regex search |
 
+Paths stay inside the working directory. Mutating tools go through the approval gate.
 
-## MIT License
+**Skills** live in `~/.blazecode/skills/` or `./.blazecode/skills/` as directories containing `SKILL.md`. Only names/descriptions enter the base prompt; full instructions load when the task matches.
+
+Project guidance is picked up from `AGENTS.md`, `BLAZECODE.md`, or `README.md`.
+
+---
+
+## Releases & packaging
+
+GitHub Releases ship platform archives:
+
+```text
+blazecode-<version>-linux-x86_64.tar.gz
+blazecode-<version>-linux-arm64.tar.gz
+blazecode-<version>-darwin-x86_64.tar.gz
+blazecode-<version>-darwin-arm64.tar.gz
+SHA256SUMS
+```
+
+Build locally:
+
+```bash
+./scripts/build_release.sh
+# → dist/release/
+```
+
+Tag a version to publish via CI:
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+---
+
+## Development
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q
+python -m blazecode
+```
+
+---
+
+## Uninstall notes
+
+`uninstall.sh` removes only the program (`~/.local/share/blazecode` and the `blazecode` link).  
+It **does not** delete `~/.blazecode`. To wipe user data:
+
+```bash
+rm -rf ~/.blazecode
+```
+
+---
+
+## License
+
+[MIT](./LICENSE)

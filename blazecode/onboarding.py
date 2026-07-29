@@ -11,18 +11,14 @@ from rich.console import Console
 from rich.prompt import IntPrompt, Prompt
 
 from blazecode.config.settings import Provider, Settings, config_path
+from blazecode.llm.models import (
+    PROVIDER_PRESETS,
+    load_cached_models,
+    normalize_model_ids,
+    rank_models,
+    save_cached_models,
+)
 from blazecode.mascot import FACES, State
-
-PRESETS = {
-    1: ("openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
-    2: (
-        "google",
-        "https://generativelanguage.googleapis.com/v1beta/openai",
-        "GEMINI_API_KEY",
-    ),
-    3: ("openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
-    4: ("local", "http://localhost:11434/v1", None),
-}
 
 
 def verify_provider(base_url: str, api_key: str) -> list[str]:
@@ -36,14 +32,25 @@ def verify_provider(base_url: str, api_key: str) -> list[str]:
     if "openrouter.ai" in base_url:
         headers["HTTP-Referer"] = "https://github.com/thealokverse/blazecode"
         headers["X-Title"] = "Blazecode"
-    with httpx.Client(timeout=15.0) as client:
-        response = client.get(f"{base_url.rstrip('/')}/models", headers=headers)
-        response.raise_for_status()
-        return [
-            str(model["id"])
-            for model in response.json().get("data", [])
-            if isinstance(model, dict) and model.get("id")
-        ]
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{base_url.rstrip('/')}/models", headers=headers
+            )
+            response.raise_for_status()
+            models = rank_models(normalize_model_ids(response.json()))
+            if models:
+                save_cached_models(base_url, models)
+                return models
+    except Exception as exc:
+        cached = load_cached_models(base_url, ttl=0)
+        if cached:
+            return rank_models(cached)
+        raise exc
+    cached = load_cached_models(base_url, ttl=0)
+    if cached:
+        return rank_models(cached)
+    return []
 
 
 def run_onboarding(
@@ -58,17 +65,13 @@ def run_onboarding(
             "  Let's get you set up. This takes about 30 seconds.\n"
         )
     while True:
-        output.print(
-            "  Which provider are you using?\n"
-            "  1. OpenAI\n"
-            "  2. Google (Gemini)\n"
-            "  3. OpenRouter\n"
-            "  4. Ollama (local)\n"
-            "  5. Other (custom base URL)\n"
-        )
-        choice = IntPrompt.ask(
-            "  ›", choices=["1", "2", "3", "4", "5"], console=output
-        )
+        output.print("  Which provider are you using?")
+        for index, (label, *_rest) in enumerate(PROVIDER_PRESETS, start=1):
+            output.print(f"  {index}. {label}")
+        other = len(PROVIDER_PRESETS) + 1
+        output.print(f"  {other}. Other (Custom Base URL)\n")
+        choices = [str(i) for i in range(1, other + 1)]
+        choice = IntPrompt.ask("  ›", choices=choices, console=output)
         try:
             provider = _collect_provider(choice, output)
             output.print("\n  Fetching available models...")
@@ -85,11 +88,15 @@ def run_onboarding(
     if not provider.models:
         output.print("  ✗ Provider returned no models.", style="red")
         return run_onboarding(existing, output)
-    visible = provider.models[:30]
+    visible = provider.models[:40]
     for index, model in enumerate(visible, start=1):
         output.print(f"  {index}. {model}")
+    if len(provider.models) > len(visible):
+        output.print(f"  … {len(provider.models) - len(visible)} more not shown")
     selected = IntPrompt.ask(
-        "  ›", choices=[str(index) for index in range(1, len(visible) + 1)], console=output
+        "  ›",
+        choices=[str(index) for index in range(1, len(visible) + 1)],
+        console=output,
     )
     model = visible[selected - 1]
     if existing is None:
@@ -135,8 +142,8 @@ def switch_or_add_provider(
 
 
 def _collect_provider(choice: int, console: Console) -> Provider:
-    if choice in PRESETS:
-        name, base_url, variable = PRESETS[choice]
+    if 1 <= choice <= len(PROVIDER_PRESETS):
+        _label, name, base_url, variable = PROVIDER_PRESETS[choice - 1]
         if variable is None:
             return Provider(name, base_url, "none", [])
         current = os.environ.get(variable)

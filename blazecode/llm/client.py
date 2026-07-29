@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+
+from blazecode.llm.models import (
+    load_cached_models,
+    normalize_model_ids,
+    rank_models,
+    save_cached_models,
+)
+
+_MAX_RETRIES = 3
+_RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+_shared_client: httpx.AsyncClient | None = None
+_shared_lock = asyncio.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +80,8 @@ def _headers(
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    # OpenRouter requires attribution headers for some models/routes.
-    if "openrouter.ai" in base_url:
+    lowered = base_url.lower()
+    if "openrouter.ai" in lowered:
         headers["HTTP-Referer"] = "https://github.com/thealokverse/blazecode"
         headers["X-Title"] = "Blazecode"
     return headers
@@ -81,8 +95,9 @@ def _parse_arguments(raw: str) -> dict[str, Any]:
     try:
         value = json.loads(text)
     except json.JSONDecodeError:
-        # Some providers emit trailing commas or partial objects; try a soft close.
         repaired = text.rstrip(", \n\r\t")
+        if repaired.count('"') % 2 == 1:
+            repaired = repaired + '"'
         if not repaired.endswith("}"):
             repaired = repaired + "}"
         if not repaired.startswith("{"):
@@ -96,6 +111,27 @@ def _parse_arguments(raw: str) -> dict[str, Any]:
     return value
 
 
+def _normalize_content(content: Any) -> str | None:
+    """Normalize provider content which may be str, null, or content-part lists."""
+    if content is None:
+        return None
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                if text is None and item.get("type") == "text":
+                    text = item.get("content")
+                if text is not None:
+                    parts.append(str(text))
+        return "".join(parts) if parts else None
+    return str(content)
+
+
 def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
     """Merge one streamed tool-call delta into the accumulator."""
     if not isinstance(part, dict):
@@ -107,23 +143,88 @@ def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
     current = calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
     call_id = part.get("id")
     if call_id:
-        current["id"] += str(call_id)
+        text = str(call_id)
+        if not current["id"] or len(text) >= len(current["id"]):
+            current["id"] = text
     function = part.get("function")
     if function is None:
+        name = part.get("name")
+        if name:
+            current["name"] = _merge_name(current["name"], str(name))
+        arguments = part.get("arguments")
+        if arguments is not None:
+            if isinstance(arguments, dict):
+                current["arguments"] = json.dumps(arguments, ensure_ascii=False)
+            else:
+                current["arguments"] += str(arguments)
         return
     if not isinstance(function, dict):
         return
     name = function.get("name")
     if name:
-        current["name"] += str(name)
+        current["name"] = _merge_name(current["name"], str(name))
     arguments = function.get("arguments")
     if arguments is None:
         return
     if isinstance(arguments, dict):
-        # Some gateways send already-decoded argument objects.
-        current["arguments"] = json.dumps(arguments)
+        current["arguments"] = json.dumps(arguments, ensure_ascii=False)
     else:
         current["arguments"] += str(arguments)
+
+
+def _merge_name(existing: str, incoming: str) -> str:
+    """Merge streamed name fragments without duplicating a full resend."""
+    if not existing:
+        return incoming
+    if incoming.startswith(existing):
+        return incoming
+    if existing.startswith(incoming):
+        return existing
+    if incoming == existing:
+        return existing
+    return existing + incoming
+
+
+def _build_payload(
+    model: str,
+    messages: Sequence[dict[str, Any]],
+    tools: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": list(messages),
+        "stream": True,
+    }
+    if tools:
+        payload["tools"] = list(tools)
+        payload["tool_choice"] = "auto"
+        payload["parallel_tool_calls"] = False
+    return payload
+
+
+def _error_detail(body: str) -> str:
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return body[:500]
+    if not isinstance(parsed, dict):
+        return body[:500]
+    error = parsed.get("error", parsed.get("message", body))
+    if isinstance(error, dict):
+        return str(error.get("message") or error)[:500]
+    return str(error)[:500]
+
+
+async def _get_shared_client() -> httpx.AsyncClient:
+    global _shared_client
+    async with _shared_lock:
+        if _shared_client is None or _shared_client.is_closed:
+            _shared_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=20.0, read=300.0, write=60.0, pool=30.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+                follow_redirects=True,
+            )
+        return _shared_client
 
 
 async def list_models(
@@ -131,23 +232,39 @@ async def list_models(
     api_key: str | None,
     *,
     client: httpx.AsyncClient | None = None,
+    use_cache: bool = True,
 ) -> list[str]:
     """Fetch model identifiers from an OpenAI-compatible endpoint."""
     owned = client is None
     session = client or httpx.AsyncClient(timeout=15)
+    last_error: Exception | None = None
     try:
-        response = await session.get(
-            f"{base_url.rstrip('/')}/models",
-            headers=_headers(api_key, base_url),
-        )
-        response.raise_for_status()
-        payload = response.json()
-        models = [
-            str(item["id"])
-            for item in payload.get("data", [])
-            if isinstance(item, dict) and item.get("id")
-        ]
-        return sorted(set(models))
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = await session.get(
+                    f"{base_url.rstrip('/')}/models",
+                    headers=_headers(api_key, base_url),
+                )
+                if response.status_code in _RETRYABLE_STATUS and attempt + 1 < _MAX_RETRIES:
+                    await asyncio.sleep(0.4 * (2**attempt))
+                    continue
+                response.raise_for_status()
+                models = rank_models(normalize_model_ids(response.json()))
+                if models and use_cache:
+                    save_cached_models(base_url, models)
+                return models
+            except (httpx.HTTPError, TimeoutError, OSError, ValueError) as exc:
+                last_error = exc
+                if attempt + 1 >= _MAX_RETRIES:
+                    break
+                await asyncio.sleep(0.4 * (2**attempt))
+        if use_cache:
+            stale = load_cached_models(base_url, ttl=0)
+            if stale:
+                return rank_models(stale)
+        if last_error is not None:
+            raise last_error
+        return []
     finally:
         if owned:
             await session.aclose()
@@ -161,106 +278,161 @@ async def stream_completion(
     tools: Sequence[dict[str, Any]],
     *,
     client: httpx.AsyncClient | None = None,
+    max_retries: int = _MAX_RETRIES,
 ) -> AsyncIterator[Event]:
     """Stream one OpenAI-compatible chat completion as typed events."""
-    payload = {
-        "model": model,
-        "messages": list(messages),
-        "tools": list(tools),
-        "tool_choice": "auto",
-        "stream": True,
-    }
-    owned = client is None
-    session = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=15))
-    calls: dict[int, dict[str, str]] = {}
-    finish_reason: str | None = None
-    usage: dict[str, int] = {}
+    payload = _build_payload(model, messages, tools)
+    owned = False
+    if client is None:
+        session = await _get_shared_client()
+    else:
+        session = client
     try:
-        async with session.stream(
-            "POST",
-            f"{base_url.rstrip('/')}/chat/completions",
-            headers=_headers(api_key, base_url, stream=True),
-            json=payload,
-        ) as response:
-            if response.is_error:
-                body = (await response.aread()).decode("utf-8", errors="replace")
-                try:
-                    detail = json.loads(body).get("error", {}).get("message", body)
-                except (json.JSONDecodeError, AttributeError, TypeError):
-                    detail = body
-                yield Error(f"HTTP {response.status_code}: {str(detail)[:500]}")
-                return
-            async for line in response.aiter_lines():
-                if not line or not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if not data:
-                    continue
-                if data == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    # One bad SSE frame must not abort the whole stream.
-                    continue
-                if not isinstance(chunk, dict):
-                    continue
-                if chunk.get("error"):
-                    provider_error = chunk["error"]
-                    detail = (
-                        provider_error.get("message", provider_error)
-                        if isinstance(provider_error, dict)
-                        else provider_error
-                    )
-                    yield Error(f"provider error: {str(detail)[:500]}")
-                    return
-                if chunk.get("usage") and isinstance(chunk["usage"], dict):
-                    usage = {
-                        key: int(value)
-                        for key, value in chunk["usage"].items()
-                        if isinstance(value, int)
-                    }
-                choices = chunk.get("choices")
-                if not choices or not isinstance(choices, list):
-                    continue
-                choice = choices[0]
-                if not isinstance(choice, dict):
-                    continue
-                finish_reason = choice.get("finish_reason") or finish_reason
-                delta = choice.get("delta") or {}
-                if not isinstance(delta, dict):
-                    continue
-                content = delta.get("content")
-                if content:
-                    yield TextDelta(str(content))
-                tool_calls = delta.get("tool_calls")
-                if tool_calls is None:
-                    continue
-                if not isinstance(tool_calls, list):
-                    continue
-                for part in tool_calls:
-                    try:
-                        _accumulate_tool_part(calls, part)
-                    except Exception:
-                        continue
-        for index in sorted(calls):
-            call = calls[index]
-            name = call.get("name") or ""
-            if not name:
-                continue
-            try:
-                arguments = _parse_arguments(call.get("arguments", ""))
-            except ValueError as exc:
-                yield Error(f"invalid arguments for tool {name!r}: {exc}")
-                continue
-            yield ToolCallStart(
-                call.get("id") or f"call_{index}", name, arguments
-            )
-        yield Done(finish_reason, usage)
-    except (httpx.HTTPError, TimeoutError, OSError) as exc:
-        yield Error(f"provider request failed: {exc}")
-    except Exception as exc:
-        yield Error(f"provider stream failed: {exc}")
+        async for event in _stream_with_retries(
+            session, base_url, api_key, payload, max_retries=max_retries
+        ):
+            yield event
     finally:
         if owned:
             await session.aclose()
+
+
+async def _stream_with_retries(
+    session: httpx.AsyncClient,
+    base_url: str,
+    api_key: str | None,
+    payload: dict[str, Any],
+    *,
+    max_retries: int,
+) -> AsyncIterator[Event]:
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = _headers(api_key, base_url, stream=True)
+    retries = max(1, max_retries)
+    drop_parallel = False
+
+    for attempt in range(retries):
+        body_payload = dict(payload)
+        if drop_parallel:
+            body_payload.pop("parallel_tool_calls", None)
+        calls: dict[int, dict[str, str]] = {}
+        finish_reason: str | None = None
+        usage: dict[str, int] = {}
+        emitted = False
+        try:
+            async with session.stream(
+                "POST", url, headers=headers, json=body_payload
+            ) as response:
+                if response.is_error:
+                    body = (await response.aread()).decode("utf-8", errors="replace")
+                    detail = _error_detail(body)
+                    lower = detail.lower()
+                    if (
+                        response.status_code in {400, 422}
+                        and "parallel_tool_calls" in lower
+                        and "parallel_tool_calls" in body_payload
+                        and attempt + 1 < retries
+                    ):
+                        drop_parallel = True
+                        continue
+                    if (
+                        response.status_code in _RETRYABLE_STATUS
+                        and attempt + 1 < retries
+                        and not emitted
+                    ):
+                        await asyncio.sleep(0.5 * (2**attempt))
+                        continue
+                    yield Error(f"HTTP {response.status_code}: {detail}")
+                    return
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    stripped = line.strip().lstrip("\ufeff")
+                    if not stripped.startswith("data:"):
+                        continue
+                    data = stripped[5:].strip()
+                    if not data or data == "[DONE]":
+                        if data == "[DONE]":
+                            break
+                        continue
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(chunk, dict):
+                        continue
+                    if chunk.get("error"):
+                        provider_error = chunk["error"]
+                        detail = (
+                            provider_error.get("message", provider_error)
+                            if isinstance(provider_error, dict)
+                            else provider_error
+                        )
+                        yield Error(f"provider error: {str(detail)[:500]}")
+                        return
+                    if chunk.get("usage") and isinstance(chunk["usage"], dict):
+                        usage = {
+                            key: int(value)
+                            for key, value in chunk["usage"].items()
+                            if isinstance(value, (int, float))
+                        }
+                    choices = chunk.get("choices")
+                    if not choices or not isinstance(choices, list):
+                        continue
+                    choice = choices[0]
+                    if not isinstance(choice, dict):
+                        continue
+                    finish_reason = choice.get("finish_reason") or finish_reason
+                    delta = choice.get("delta")
+                    if not isinstance(delta, dict):
+                        message = choice.get("message")
+                        delta = message if isinstance(message, dict) else {}
+                    content = _normalize_content(delta.get("content"))
+                    if content:
+                        emitted = True
+                        yield TextDelta(content)
+                    alt = _normalize_content(delta.get("text"))
+                    if alt and alt != content:
+                        emitted = True
+                        yield TextDelta(alt)
+                    tool_calls = delta.get("tool_calls")
+                    if isinstance(tool_calls, list):
+                        for part in tool_calls:
+                            try:
+                                _accumulate_tool_part(calls, part)
+                                emitted = True
+                            except Exception:
+                                continue
+                    function_call = delta.get("function_call")
+                    if isinstance(function_call, dict):
+                        _accumulate_tool_part(
+                            calls,
+                            {
+                                "index": 0,
+                                "id": delta.get("id") or "call_0",
+                                "function": function_call,
+                            },
+                        )
+                        emitted = True
+            for index in sorted(calls):
+                call = calls[index]
+                name = (call.get("name") or "").strip()
+                if not name:
+                    continue
+                try:
+                    arguments = _parse_arguments(call.get("arguments", ""))
+                except ValueError as exc:
+                    arguments = {"_parse_error": str(exc)}
+                call_id = (call.get("id") or "").strip() or f"call_{index}"
+                yield ToolCallStart(call_id, name, arguments)
+            yield Done(finish_reason, usage)
+            return
+        except (httpx.HTTPError, TimeoutError, OSError) as exc:
+            if emitted or attempt + 1 >= retries:
+                yield Error(f"provider request failed: {exc}")
+                return
+            await asyncio.sleep(0.5 * (2**attempt))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            yield Error(f"provider stream failed: {exc}")
+            return

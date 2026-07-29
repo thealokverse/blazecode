@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ _STATUS: dict[State, str] = {
     State.THINKING: "thinking...",
     State.SEARCHING: "searching...",
     State.EDITING: "writing...",
-    State.DEBUGGING: "debugging...",
+    State.DEBUGGING: "working...",
 }
 
 
@@ -55,11 +56,14 @@ class Renderer:
         self._refresh_live()
 
     def on_text(self, text: str) -> None:
-        """Clear activity status and stream the response without UI chrome."""
+        """Stream tokens immediately with no buffering or markdown reparse."""
         self._stop_live()
         self._activity = None
+        if not text:
+            return
         self.console.print(Text(text), end="", soft_wrap=True)
         self._line_open = not text.endswith("\n")
+        self._flush()
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
         """Keep the state indicator visible while the tool executes."""
@@ -125,7 +129,7 @@ class Renderer:
         self._live = Live(
             self._renderable(),
             console=self.console,
-            refresh_per_second=20,
+            refresh_per_second=12,
             transient=True,
         )
         self._live.start()
@@ -147,6 +151,15 @@ class Renderer:
                 pass
             self._live = None
 
+    def _flush(self) -> None:
+        try:
+            file = getattr(self.console, "file", None) or sys.stdout
+            flush = getattr(file, "flush", None)
+            if callable(flush):
+                flush()
+        except Exception:
+            pass
+
 
 def render_header(console: Console, model: str, cwd: Path) -> None:
     """Print the Codex-style startup status box (REPL only)."""
@@ -165,7 +178,7 @@ def render_header(console: Console, model: str, cwd: Path) -> None:
     body.append(f"{face} Blazecode (v{__version__})\n\n", style="bold")
     body.append("model:     ", style=MUTED)
     body.append(f"{model}", style=ACCENT)
-    body.append("   /model to change\n", style=MUTED)
+    body.append("   /models to change\n", style=MUTED)
     body.append("directory: ", style=MUTED)
     body.append(directory, style=ACCENT)
     console.print(
@@ -188,6 +201,7 @@ def _tool_target(name: str, arguments: dict[str, Any]) -> str:
         safe = {
             key: ("…" if key in {"content", "new_string", "old_string"} else value)
             for key, value in arguments.items()
+            if not str(key).startswith("_")
         }
         return json.dumps(safe, ensure_ascii=False, default=str)[:120]
     except (TypeError, ValueError):

@@ -9,12 +9,25 @@ from blazecode.session.message import Message
 
 
 def estimate_tokens(messages: Sequence[Message]) -> int:
-    """Estimate message tokens using a conservative character heuristic."""
-    characters = sum(
-        len(json.dumps(message.to_dict(api=True), ensure_ascii=False))
-        for message in messages
-    )
-    return max(1, (characters + 3) // 4) if messages else 0
+    """Estimate message tokens using a cheap character heuristic."""
+    if not messages:
+        return 0
+    characters = 0
+    for message in messages:
+        characters += 8  # role / framing overhead
+        if message.content:
+            characters += len(message.content)
+        if message.tool_calls:
+            # Avoid full api dump; rough size of tool call payloads.
+            try:
+                characters += len(json.dumps(message.tool_calls, ensure_ascii=False))
+            except (TypeError, ValueError):
+                characters += 64 * len(message.tool_calls)
+        if message.tool_call_id:
+            characters += len(message.tool_call_id)
+        if message.name:
+            characters += len(message.name)
+    return max(1, (characters + 3) // 4)
 
 
 def compact_messages(
@@ -26,6 +39,7 @@ def compact_messages(
     values = list(messages)
     if estimate_tokens(values) <= max_tokens:
         return values
+
     system = next((message for message in values if message.role == "system"), None)
     body = [message for message in values if message is not system]
     current_user = max(
@@ -35,14 +49,55 @@ def compact_messages(
     start = min(current_user, max(0, len(body) - recent_messages))
     keep = body[start:]
 
+    # Shrink from the left; re-estimate only the kept window.
     while keep and estimate_tokens(([system] if system else []) + keep) > max_tokens:
         if start >= current_user:
             break
         keep.pop(0)
         start += 1
 
-    # A tool result is invalid without the assistant call that introduced it.
+    keep = _drop_orphans(keep)
+    if start > 0 and body[:start]:
+        note = Message(
+            role="system",
+            content=(
+                f"[context compacted: omitted {start} earlier messages; "
+                "critical decisions and the current task are preserved]"
+            ),
+        )
+        if system is not None:
+            return [system, note, *keep]
+        return [note, *keep]
+    return ([system] if system else []) + keep
+
+
+def _drop_orphans(messages: list[Message]) -> list[Message]:
+    """Remove tool results without a matching assistant tool-call parent."""
+    keep = list(messages)
     while keep and keep[0].role == "tool":
         keep.pop(0)
-
-    return ([system] if system else []) + keep
+    repaired: list[Message] = []
+    pending_ids: set[str] = set()
+    for message in keep:
+        if message.role == "assistant" and message.tool_calls:
+            pending_ids = {
+                str(call.get("id", ""))
+                for call in message.tool_calls
+                if isinstance(call, dict) and call.get("id")
+            }
+            repaired.append(message)
+            continue
+        if message.role == "tool":
+            call_id = message.tool_call_id or ""
+            if pending_ids and call_id and call_id not in pending_ids:
+                continue
+            if not pending_ids and call_id:
+                # No assistant parent in-window.
+                continue
+            repaired.append(message)
+            if call_id:
+                pending_ids.discard(call_id)
+            continue
+        pending_ids.clear()
+        repaired.append(message)
+    return repaired

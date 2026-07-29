@@ -81,17 +81,21 @@ async def test_stream_completion_parses_text_tool_and_usage() -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_error_and_model_listing() -> None:
+async def test_provider_error_and_model_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
             return httpx.Response(200, json={"data": [{"id": "b"}, {"id": "a"}]})
         return httpx.Response(401, json={"error": {"message": "bad key"}})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        assert await list_models("https://example.test/v1", None, client=client) == [
-            "a",
-            "b",
-        ]
+        models = await list_models(
+            "https://example.test/v1", None, client=client
+        )
+        assert set(models) == {"a", "b"}
         events = [
             event
             async for event in stream_completion(

@@ -13,7 +13,7 @@ from blazecode import onboarding
 
 
 def test_verify_provider_is_sync_and_resolves_env_at_use_time(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     headers_seen: list[dict[str, str]] = []
 
@@ -39,11 +39,13 @@ def test_verify_provider_is_sync_and_resolves_env_at_use_time(
             headers_seen.append(headers)
             return Response()
 
+    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
     monkeypatch.setattr(onboarding.httpx, "Client", Client)
     monkeypatch.setenv("DYNAMIC_KEY", "first")
-    assert onboarding.verify_provider(
+    models = onboarding.verify_provider(
         "https://example.test/v1", "env:DYNAMIC_KEY"
-    ) == ["model-b", "model-a"]
+    )
+    assert set(models) == {"model-a", "model-b"}
     monkeypatch.setenv("DYNAMIC_KEY", "second")
     onboarding.verify_provider("https://example.test/v1", "env:DYNAMIC_KEY")
     assert headers_seen == [

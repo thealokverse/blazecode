@@ -50,10 +50,11 @@ def test_repl_awaits_prompt_async_and_wires_slash_completer() -> None:
     assert {completion.text for completion in completions} == set(COMMANDS)
 
 
-def test_command_registry_and_dispatch_cover_all_nine_commands() -> None:
+def test_command_registry_and_dispatch_cover_all_commands() -> None:
     expected = {
         "/help",
         "/status",
+        "/approval",
         "/provider",
         "/models",
         "/skills",

@@ -12,7 +12,7 @@ from rich.prompt import IntPrompt
 from rich.table import Table
 
 from blazecode.agent.loop import AgentLoop
-from blazecode.config.settings import Settings, config_home
+from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
 from blazecode.context.compaction import estimate_tokens
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
@@ -63,7 +63,21 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
             agent.settings = settings
             continue
         console.print()
-        await agent.run(text)
+        task = asyncio.create_task(agent.run(text))
+        try:
+            await task
+        except asyncio.CancelledError:
+            agent.request_cancel()
+            console.print("Interrupted.", style="yellow")
+        except KeyboardInterrupt:
+            agent.request_cancel()
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            console.print("\nInterrupted.", style="yellow")
+            blaze.set_state(State.IDLE)
 
 
 async def _command(
@@ -75,6 +89,7 @@ async def _command(
     console: Console,
 ) -> tuple[bool, Settings]:
     command, _, argument = text.partition(" ")
+    argument = argument.strip()
     if command == "/exit":
         console.print("Bye! Catch you later.")
         return True, settings
@@ -91,6 +106,8 @@ async def _command(
             f"Session tokens (estimated): {estimate_tokens(agent.messages)}\n"
             f"Blaze: {blaze.state.value} {blaze.face}"
         )
+    elif command == "/approval":
+        settings = _set_approval(settings, argument, console)
     elif command == "/provider":
         settings = await asyncio.to_thread(
             switch_or_add_provider, settings, console
@@ -154,3 +171,31 @@ async def _command(
     else:
         console.print(f"Unknown command: {command}. Try /help.", style="red")
     return False, settings
+
+
+def _set_approval(settings: Settings, argument: str, console: Console) -> Settings:
+    """Apply /approval on|off (and optional explicit mode names)."""
+    token = argument.lower()
+    if not token:
+        console.print(
+            f"Approval: {settings.approval_mode} "
+            f"({'on' if settings.approval_mode == 'ask' else 'off' if settings.approval_mode == 'auto' else settings.approval_mode})"
+        )
+        console.print("Usage: /approval on | /approval off")
+        return settings
+    mapping = {
+        "on": "ask",
+        "off": "auto",
+        "ask": "ask",
+        "auto": "auto",
+        "plan": "plan",
+    }
+    mode = mapping.get(token)
+    if mode is None or mode not in APPROVAL_MODES:
+        console.print("Usage: /approval on | /approval off", style="red")
+        return settings
+    settings.approval_mode = mode
+    settings.save()
+    label = "on" if mode == "ask" else "off" if mode == "auto" else mode
+    console.print(f"Approval {label} ({mode}).")
+    return settings

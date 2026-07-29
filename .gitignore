@@ -6,3 +6,4 @@ dist/
 build/
 *.egg-info/
 .blazecode/
+.ruff_cache/

@@ -28,6 +28,8 @@ class SkillLoader:
 
     def __init__(self, cwd: Path) -> None:
         self.cwd = cwd.resolve()
+        self._cache: dict[str, Skill] | None = None
+        self._summary: str | None = None
 
     @property
     def roots(self) -> tuple[Path, Path]:
@@ -36,6 +38,8 @@ class SkillLoader:
 
     def discover(self) -> dict[str, Skill]:
         """Discover valid skill directories in precedence order."""
+        if self._cache is not None:
+            return self._cache
         found: dict[str, Skill] = {}
         for root in self.roots:
             if not root.is_dir():
@@ -43,18 +47,25 @@ class SkillLoader:
             for skill_file in sorted(root.glob("*/SKILL.md")):
                 name, description = _metadata(skill_file)
                 found[name] = Skill(name, description, skill_file)
+        self._cache = found
         return found
 
     def summary(self) -> str:
         """Build cheap skill metadata for the system prompt."""
+        if self._summary is not None:
+            return self._summary
         skills = self.discover()
         if not skills:
-            return "No skills are currently installed."
+            self._summary = "No skills are currently installed."
+            return self._summary
         lines = [
             f"- {skill.name}: {skill.description}"
             for skill in sorted(skills.values(), key=lambda item: item.name)
         ]
-        return "Available skills (load only when relevant):\n" + "\n".join(lines)
+        self._summary = "Available skills (load only when relevant):\n" + "\n".join(
+            lines
+        )
+        return self._summary
 
     def relevant(self, prompt: str) -> list[Skill]:
         """Select skills whose names or description terms match this turn."""
@@ -84,6 +95,8 @@ class SkillLoader:
         if destination.exists():
             raise FileExistsError(f"skill already exists: {name}")
         shutil.copytree(source, destination)
+        self._cache = None
+        self._summary = None
         return self.discover()[name]
 
 
