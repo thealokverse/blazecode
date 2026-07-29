@@ -115,3 +115,79 @@ async def test_plan_mode_returns_denied_tool_result(tmp_path: Path) -> None:
     assert not (tmp_path / "forbidden").exists()
     assert "read-only" in store.load()[2].content
 
+
+@pytest.mark.asyncio
+async def test_cancel_mid_batch_fills_missing_tool_results(tmp_path: Path) -> None:
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        yield ToolCallStart("c1", "write", {"path": "a.txt", "content": "a"})
+        yield ToolCallStart("c2", "write", {"path": "b.txt", "content": "b"})
+        yield Done("tool_calls")
+
+    settings = Settings(
+        "p",
+        "m",
+        "auto",
+        [Provider("p", "https://example.test/v1", "none", ["m"])],
+    )
+    store = SessionStore(directory=tmp_path / "sessions")
+    loop = AgentLoop(
+        settings,
+        tmp_path,
+        store,
+        ApprovalManager("auto"),
+        streamer=streamer,
+    )
+    loop.request_cancel()
+    # Cancel is checked before each tool; force cancel after first tool via side effect.
+    original = loop._run_tool
+
+    async def run_once(call: Any) -> None:
+        await original(call)
+        loop.request_cancel()
+
+    loop._run_tool = run_once  # type: ignore[method-assign]
+    await loop.run("write both")
+    messages = store.load()
+    tool_msgs = [m for m in messages if m.role == "tool"]
+    assert len(tool_msgs) == 2
+    assert tool_msgs[0].tool_call_id == "c1"
+    assert tool_msgs[1].tool_call_id == "c2"
+    assert "interrupted" in tool_msgs[1].content
+    assert (tmp_path / "a.txt").exists()
+    assert not (tmp_path / "b.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_alias_tool_names_match_in_history(tmp_path: Path) -> None:
+    calls = 0
+
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            yield ToolCallStart("1", "shell", {"command": "echo hi"})
+            yield Done("tool_calls")
+        else:
+            assistant = args[3][-2]
+            tool = args[3][-1]
+            assert assistant["tool_calls"][0]["function"]["name"] == "bash"
+            assert tool["name"] == "bash"
+            yield TextDelta("ok")
+            yield Done("stop")
+
+    settings = Settings(
+        "p",
+        "m",
+        "auto",
+        [Provider("p", "https://example.test/v1", "none", ["m"])],
+    )
+    store = SessionStore(directory=tmp_path / "sessions")
+    loop = AgentLoop(
+        settings,
+        tmp_path,
+        store,
+        ApprovalManager("auto"),
+        streamer=streamer,
+    )
+    assert await loop.run("run") == "ok"
+

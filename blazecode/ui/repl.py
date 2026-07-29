@@ -18,7 +18,6 @@ from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
 from blazecode.permissions.approval import ApprovalManager
 from blazecode.session.store import SessionStore
-from blazecode.skills.loader import SkillLoader
 from blazecode.ui.completer import COMMANDS, slash_completer
 from blazecode.ui.render import Renderer, render_header
 
@@ -125,16 +124,16 @@ async def _command(
         settings.default_model = provider.models[selected - 1]
         settings.save()
     elif command == "/skills":
-        loader = SkillLoader(agent.cwd)
         if argument.startswith("add "):
             source = Path(argument[4:].strip())
             try:
-                skill = loader.add(source)
+                skill = agent.skills.add(source)
+                agent.reload_skills()
                 console.print(f"Added {skill.name}: {skill.description}")
-            except (OSError, ValueError) as exc:
+            except (OSError, ValueError, FileExistsError) as exc:
                 console.print(f"Could not add skill: {exc}", style="red")
         else:
-            skills = loader.discover()
+            skills = agent.skills.discover()
             if not skills:
                 console.print("No skills loaded.")
             for skill in skills.values():

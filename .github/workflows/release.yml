@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip build wheel
-          chmod +x scripts/build_release.sh install.sh uninstall.sh update.sh
+          chmod +x scripts/build_release.sh install.sh
           ./scripts/build_release.sh
           ls -lah dist/release
 

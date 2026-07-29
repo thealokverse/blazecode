@@ -35,3 +35,21 @@ def test_compaction_never_drops_oversized_current_task() -> None:
     compacted = compact_messages([system, old, current], max_tokens=10)
     assert compacted[0] is system
     assert current in compacted
+
+
+def test_compaction_strips_unanswered_tool_calls() -> None:
+    messages = [
+        Message("system", "sys"),
+        Message(
+            "assistant",
+            tool_calls=[
+                {"id": "1", "type": "function", "function": {"name": "read"}},
+                {"id": "2", "type": "function", "function": {"name": "write"}},
+            ],
+        ),
+        Message("tool", "ok", tool_call_id="1", name="read"),
+        Message("user", "continue"),
+    ]
+    compacted = compact_messages(messages, max_tokens=10_000)
+    assistant = next(m for m in compacted if m.role == "assistant")
+    assert [c["id"] for c in assistant.tool_calls] == ["1"]

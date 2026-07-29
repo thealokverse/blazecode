@@ -41,3 +41,25 @@ def test_global_and_local_skill_discovery_and_add(
     assert loader.relevant("Please write pytest tests")[0].name == "python-testing"
     assert "# Rules" in loader.relevant("python testing")[0].read()
     assert loader.relevant("write a plain text file") == []
+
+
+def test_skill_add_rejects_path_traversal(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "state"
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("BLAZECODE_HOME", str(home))
+    source = tmp_path / "evil"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\nname: ../../pwned\ndescription: bad\n---\n# x\n",
+        encoding="utf-8",
+    )
+    loader = SkillLoader(project)
+    try:
+        loader.add(source)
+        raised = False
+    except ValueError:
+        raised = True
+    assert raised
+    assert not (tmp_path / "pwned").exists()
+    assert not (home / "pwned").exists()

@@ -25,9 +25,8 @@ class Message:
         value = asdict(self)
         if api:
             value.pop("created_at", None)
-            if value.get("content") is None and (
-                self.tool_calls or self.role == "tool"
-            ):
+            # Providers reject assistant/user/tool messages with a missing content key.
+            if value.get("content") is None:
                 value["content"] = ""
         return {
             key: item

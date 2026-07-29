@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +51,7 @@ class BashTool(Tool):
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
@@ -70,16 +73,32 @@ class BashTool(Tool):
                     f"Exit code {process.returncode}\n{text}".rstrip(), is_error=True
                 )
             return ToolResult(text.rstrip() or "(no output)")
+        except asyncio.CancelledError:
+            if process is not None and process.returncode is None:
+                await _kill_process(process)
+            raise
         except (KeyError, OSError, ValueError) as exc:
             if process is not None and process.returncode is None:
                 await _kill_process(process)
             return error_result(exc)
+        finally:
+            if process is not None and process.returncode is None:
+                await _kill_process(process)
 
 
 async def _kill_process(process: asyncio.subprocess.Process) -> None:
-    """Force-terminate a subprocess and wait for it to exit."""
+    """Force-terminate a subprocess (and its group) and wait for exit."""
+    if process.returncode is not None:
+        return
+    pid = process.pid
     try:
-        process.kill()
+        if pid is not None:
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                process.kill()
+        else:
+            process.kill()
     except ProcessLookupError:
         return
     try:

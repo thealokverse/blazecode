@@ -34,6 +34,16 @@ def test_tool_result_messages_always_have_content() -> None:
     assert payload["tool_call_id"] == "call_1"
 
 
+def test_empty_assistant_stop_includes_content_key() -> None:
+    payload = Message(role="assistant", content=None).to_dict(api=True)
+    assert payload == {"role": "assistant", "content": ""}
+
+
+def test_tool_call_message_uses_resolved_name() -> None:
+    serialized = tool_call_message(ToolCallStart("1", "shell", {"command": "true"}))
+    assert serialized["function"]["name"] == "bash"
+
+
 def test_tool_call_message_strips_internal_keys() -> None:
     call = ToolCallStart("1", "read", {"path": "a.py", "_parse_error": "x"})
     serialized = tool_call_message(call)

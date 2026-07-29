@@ -34,11 +34,12 @@ def tool_call_message(call: ToolCallStart) -> dict[str, Any]:
         for key, value in call.arguments.items()
         if not str(key).startswith("_")
     }
+    name = resolve_tool_name(call.name) or call.name
     return {
         "id": call.call_id,
         "type": "function",
         "function": {
-            "name": call.name,
+            "name": name,
             "arguments": json.dumps(arguments, ensure_ascii=False),
         },
     }
@@ -88,3 +89,13 @@ async def execute_tool(
         raise
     except Exception as exc:
         return ToolResult(f"Error: {exc}", is_error=True)
+
+
+def interrupted_tool_message(call: ToolCallStart) -> dict[str, str | None]:
+    """Build a tool-result payload for a call skipped by cancel."""
+    return {
+        "role": "tool",
+        "content": "Error: interrupted before tool execution",
+        "tool_call_id": call.call_id,
+        "name": resolve_tool_name(call.name) or call.name,
+    }

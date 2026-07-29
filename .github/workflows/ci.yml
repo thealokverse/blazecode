@@ -25,6 +25,6 @@ jobs:
       - name: Packaging smoke (3.12 only)
         if: matrix.python-version == '3.12'
         run: |
-          chmod +x scripts/build_release.sh install.sh uninstall.sh update.sh
+          chmod +x scripts/build_release.sh install.sh
           ./scripts/build_release.sh
           test -f dist/release/SHA256SUMS

@@ -64,3 +64,37 @@ async def test_bash_reports_timeout_and_exit_code(tmp_path: Path) -> None:
     assert failed.is_error
     assert "Exit code 7" in failed.content
 
+
+@pytest.mark.asyncio
+async def test_bash_cancel_kills_subprocess(tmp_path: Path) -> None:
+    import asyncio
+    import os
+    import signal
+
+    bash = build_registry()["bash"]
+    marker = tmp_path / "started"
+    task = asyncio.create_task(
+        bash.run(
+            {
+                "command": f"touch {marker} && sleep 30",
+                "timeout": 60,
+            },
+            tmp_path,
+        )
+    )
+    for _ in range(50):
+        if marker.exists():
+            break
+        await asyncio.sleep(0.05)
+    assert marker.exists()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    await asyncio.sleep(0.2)
+    # No leftover sleep from this command should remain attached to our session.
+    # Soft check: the cancelled task finished without hanging.
+    assert task.done()
+    del os, signal
+

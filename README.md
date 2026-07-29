@@ -22,13 +22,14 @@ blaze (•‿•) ❯
 curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh | bash
 ```
 
-This installs a self-contained build into `~/.local/share/blazecode` and links the `blazecode` binary to `~/.local/bin`.  
+This creates an isolated venv in `~/.local/share/blazecode` and links `blazecode` to `~/.local/bin`.  
 Your config and sessions in `~/.blazecode` are never touched.
 
 | Action | Command |
 |--------|---------|
-| Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/update.sh \| bash` |
-| Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/uninstall.sh \| bash` |
+| Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash` |
+| Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash -s -- --uninstall` |
+| Pin version | `curl -fsSL ... \| bash -s -- --version v1.1.0` |
 
 Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
 
@@ -40,9 +41,6 @@ pip install git+https://github.com/thealokverse/blazecode.git
 
 # uv
 uv tool install git+https://github.com/thealokverse/blazecode.git
-
-# pinned installer version
-BLAZECODE_VERSION=1.1.0 curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh | bash
 ```
 
 ---
@@ -156,7 +154,7 @@ python -m blazecode
 
 ## Uninstall notes
 
-`uninstall.sh` removes only the program (`~/.local/share/blazecode` and the `blazecode` link).  
+`install.sh --uninstall` removes only the program (`~/.local/share/blazecode` and the `blazecode` link).  
 It **does not** delete `~/.blazecode`. To wipe user data:
 
 ```bash

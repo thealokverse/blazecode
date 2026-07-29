@@ -40,13 +40,13 @@ async def _run(
     if prompt is None:
         await run_repl(settings)
         return
-    # Headless (-p): bypass the REPL entirely, auto-approve tools, stream to stdout.
+    # Headless (-p): honor configured approval mode. "ask" without a TTY fails closed.
     renderer = Renderer(console, interactive=False)
     agent = AgentLoop(
         settings,
         Path.cwd().resolve(),
         SessionStore(),
-        ApprovalManager("auto"),
+        ApprovalManager(settings.approval_mode),
         renderer,
     )
     await agent.run(prompt)
@@ -79,6 +79,10 @@ def main(
             selected = settings.provider(provider)
             settings.default_provider = selected.name
             if model is None and settings.default_model not in selected.models:
+                if not selected.models:
+                    raise ValueError(
+                        f"provider {selected.name!r} has no models configured"
+                    )
                 settings.default_model = selected.models[0]
         if model:
             if model not in settings.provider().models:
@@ -88,6 +92,6 @@ def main(
                 )
             settings.default_model = model
         asyncio.run(_run(settings, prompt, console))
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, TypeError, KeyError) as exc:
         console.print(f"Configuration error: {exc}", style="red")
         raise typer.Exit(2) from exc

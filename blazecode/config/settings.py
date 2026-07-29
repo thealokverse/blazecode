@@ -84,16 +84,21 @@ class Settings:
             raise FileNotFoundError(f"configuration not found: {source}") from exc
         except json.JSONDecodeError as exc:
             raise ValueError(f"invalid JSON in {source}: {exc}") from exc
-        providers = [Provider.from_dict(item) for item in raw.get("providers", [])]
-        settings = cls(
-            default_provider=str(raw.get("default_provider", "")),
-            default_model=str(raw.get("default_model", "")),
-            approval_mode=str(raw.get("approval_mode", "ask")),
-            providers=providers,
-            context_window=int(raw.get("context_window", 128_000)),
-            compaction_ratio=float(raw.get("compaction_ratio", 0.7)),
-        )
-        settings.validate()
+        try:
+            providers = [
+                Provider.from_dict(item) for item in raw.get("providers", [])
+            ]
+            settings = cls(
+                default_provider=str(raw.get("default_provider", "")),
+                default_model=str(raw.get("default_model", "")),
+                approval_mode=str(raw.get("approval_mode", "ask")),
+                providers=providers,
+                context_window=int(raw.get("context_window", 128_000)),
+                compaction_ratio=float(raw.get("compaction_ratio", 0.7)),
+            )
+            settings.validate()
+        except (TypeError, KeyError, ValueError) as exc:
+            raise ValueError(f"invalid configuration in {source}: {exc}") from exc
         return settings
 
     def validate(self) -> None:
@@ -102,6 +107,9 @@ class Settings:
             raise ValueError(
                 f"approval_mode must be one of {', '.join(sorted(APPROVAL_MODES))}"
             )
+        for provider in self.providers:
+            provider.name = provider.name.strip()
+            provider.base_url = provider.base_url.strip().rstrip("/")
         names = [provider.name for provider in self.providers]
         if any(not provider.name or not provider.base_url for provider in self.providers):
             raise ValueError("every provider requires a name and base_url")
@@ -117,6 +125,8 @@ class Settings:
         if self.default_provider not in names:
             raise ValueError(f"unknown default provider: {self.default_provider}")
         provider = self.provider()
+        if not provider.models:
+            raise ValueError(f"provider {provider.name!r} has no models configured")
         if self.default_model not in provider.models:
             raise ValueError(
                 f"model {self.default_model!r} is not configured for "

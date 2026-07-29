@@ -38,7 +38,7 @@ def compact_messages(
         raise ValueError("max_tokens must be positive")
     values = list(messages)
     if estimate_tokens(values) <= max_tokens:
-        return values
+        return _drop_orphans(values)
 
     system = next((message for message in values if message.role == "system"), None)
     body = [message for message in values if message is not system]
@@ -72,20 +72,68 @@ def compact_messages(
 
 
 def _drop_orphans(messages: list[Message]) -> list[Message]:
-    """Remove tool results without a matching assistant tool-call parent."""
+    """Drop orphan tool results and unfinished assistant tool_calls."""
     keep = list(messages)
     while keep and keep[0].role == "tool":
         keep.pop(0)
+
     repaired: list[Message] = []
     pending_ids: set[str] = set()
+    assistant_index: int | None = None
+
+    def finalize_assistant() -> None:
+        nonlocal pending_ids, assistant_index
+        if assistant_index is None:
+            pending_ids = set()
+            return
+        message = repaired[assistant_index]
+        if not message.tool_calls:
+            pending_ids = set()
+            assistant_index = None
+            return
+        if not pending_ids:
+            assistant_index = None
+            return
+        answered = [
+            call
+            for call in message.tool_calls
+            if isinstance(call, dict)
+            and call.get("id")
+            and str(call.get("id")) not in pending_ids
+        ]
+        if answered:
+            repaired[assistant_index] = Message(
+                role=message.role,
+                content=message.content,
+                tool_calls=answered,
+                tool_call_id=message.tool_call_id,
+                name=message.name,
+                created_at=message.created_at,
+            )
+        elif message.content:
+            repaired[assistant_index] = Message(
+                role=message.role,
+                content=message.content,
+                tool_calls=[],
+                tool_call_id=message.tool_call_id,
+                name=message.name,
+                created_at=message.created_at,
+            )
+        else:
+            repaired.pop(assistant_index)
+        pending_ids = set()
+        assistant_index = None
+
     for message in keep:
         if message.role == "assistant" and message.tool_calls:
+            finalize_assistant()
             pending_ids = {
                 str(call.get("id", ""))
                 for call in message.tool_calls
                 if isinstance(call, dict) and call.get("id")
             }
             repaired.append(message)
+            assistant_index = len(repaired) - 1
             continue
         if message.role == "tool":
             call_id = message.tool_call_id or ""
@@ -98,6 +146,7 @@ def _drop_orphans(messages: list[Message]) -> list[Message]:
             if call_id:
                 pending_ids.discard(call_id)
             continue
-        pending_ids.clear()
+        finalize_assistant()
         repaired.append(message)
+    finalize_assistant()
     return repaired
