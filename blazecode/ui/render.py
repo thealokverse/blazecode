@@ -109,15 +109,36 @@ class Renderer:
         self.console.print()
 
     def approve(self, name: str, arguments: dict[str, Any]) -> bool:
-        """Ask the user before a mutating tool call."""
+        """Synchronously ask the user before a mutating tool call.
+
+        The REPL uses its prompt-toolkit-native asynchronous approver instead.
+        This remains useful for standalone synchronous integrations.
+        """
         from rich.prompt import Confirm
 
         target = _tool_target(name, arguments)
         self._stop_live()
         try:
-            return Confirm.ask(f"Allow [bold]{name}[/bold] {target}?", default=False)
+            return Confirm.ask(
+                f"Allow [bold]{name}[/bold] {target}?",
+                default=False,
+                console=self.console,
+            )
         finally:
             self._start_live()
+
+    def pause_activity(self) -> None:
+        """Temporarily remove the live status before another terminal prompt."""
+        self._stop_live()
+
+    def resume_activity(self) -> None:
+        """Restore the live status after another terminal prompt."""
+        self._start_live()
+
+    @staticmethod
+    def tool_target(name: str, arguments: dict[str, Any]) -> str:
+        """Return a short, safe target description for an approval prompt."""
+        return _tool_target(name, arguments)
 
     def _renderable(self) -> Text:
         status = self._activity or "…"
@@ -196,7 +217,7 @@ def _tool_target(name: str, arguments: dict[str, Any]) -> str:
     for key in ("path", "command"):
         value = arguments.get(key)
         if isinstance(value, str):
-            return value if len(value) <= 120 else value[:117] + "…"
+            return _safe_terminal_text(value, 120)
     try:
         safe = {
             key: ("…" if key in {"content", "new_string", "old_string"} else value)
@@ -206,6 +227,15 @@ def _tool_target(name: str, arguments: dict[str, Any]) -> str:
         return json.dumps(safe, ensure_ascii=False, default=str)[:120]
     except (TypeError, ValueError):
         return "{…}"
+
+
+def _safe_terminal_text(value: str, limit: int) -> str:
+    """Make model-provided text safe to include in an interactive prompt."""
+    rendered = "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in value
+    )
+    return rendered if len(rendered) <= limit else rendered[: limit - 3] + "…"
 
 
 def _tool_summary(name: str) -> str:

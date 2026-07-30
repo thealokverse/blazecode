@@ -6,6 +6,8 @@ from collections.abc import Iterable
 
 from prompt_toolkit.completion import Completer, Completion, CompleteEvent, FuzzyWordCompleter
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Condition
+from prompt_toolkit.application.current import get_app
 
 COMMANDS: dict[str, str] = {
     "/help": "List commands",
@@ -34,8 +36,7 @@ class SlashCommandCompleter(Completer):
     def get_completions(
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
-        line = document.current_line_before_cursor
-        if not line.startswith("/"):
+        if not is_slash_command(document):
             return
         yield from self._inner.get_completions(document, complete_event)
 
@@ -43,3 +44,14 @@ class SlashCommandCompleter(Completer):
 def slash_completer() -> Completer:
     """Build the fuzzy popup completer used by the REPL."""
     return SlashCommandCompleter()
+
+
+def is_slash_command(document: Document) -> bool:
+    """Return whether completion should be available for this input line."""
+    return document.current_line_before_cursor.startswith("/")
+
+
+@Condition
+def complete_slash_commands_while_typing() -> bool:
+    """Only trigger automatic completion when the user is entering a command."""
+    return is_slash_command(get_app().current_buffer.document)

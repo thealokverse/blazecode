@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.history import FileHistory
+from prompt_toolkit.history import DummyHistory, FileHistory
 from rich.console import Console
 from rich.prompt import IntPrompt
 from rich.table import Table
@@ -16,9 +17,9 @@ from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
 from blazecode.context.compaction import estimate_tokens
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
-from blazecode.permissions.approval import ApprovalManager
+from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
 from blazecode.session.store import SessionStore
-from blazecode.ui.completer import COMMANDS, slash_completer
+from blazecode.ui.completer import COMMANDS, complete_slash_commands_while_typing, slash_completer
 from blazecode.ui.render import Renderer, render_header
 
 
@@ -28,15 +29,19 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
     console = Console()
     renderer = Renderer(console)
     store = SessionStore()
-    approval = ApprovalManager(settings.approval_mode, renderer.approve)
-    agent = AgentLoop(settings, working, store, approval, renderer)
     history_path = config_home() / "history"
     session: PromptSession[str] = PromptSession(
         history=FileHistory(str(history_path)),
         completer=slash_completer(),
-        complete_while_typing=True,
+        complete_while_typing=complete_slash_commands_while_typing,
         complete_in_thread=True,
     )
+    approval_session: PromptSession[str] = PromptSession(history=DummyHistory())
+    approval = ApprovalManager(
+        settings.approval_mode,
+        _interactive_approver(approval_session, renderer),
+    )
+    agent = AgentLoop(settings, working, store, approval, renderer)
     render_header(console, settings.default_model, working)
     while True:
         blaze.set_state(State.IDLE)
@@ -65,17 +70,14 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
         task = asyncio.create_task(agent.run(text))
         try:
             await task
-        except asyncio.CancelledError:
-            agent.request_cancel()
-            console.print("Interrupted.", style="yellow")
-        except KeyboardInterrupt:
+        except (asyncio.CancelledError, KeyboardInterrupt):
             agent.request_cancel()
             task.cancel()
             try:
                 await task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
-            console.print("\nInterrupted.", style="yellow")
+            console.print("Interrupted.", style="yellow")
             blaze.set_state(State.IDLE)
 
 
@@ -198,3 +200,21 @@ def _set_approval(settings: Settings, argument: str, console: Console) -> Settin
     label = "on" if mode == "ask" else "off" if mode == "auto" else mode
     console.print(f"Approval {label} ({mode}).")
     return settings
+
+
+def _interactive_approver(
+    session: PromptSession[str], renderer: Renderer
+) -> ApprovalCallback:
+    """Build an async approval prompt that shares the REPL's terminal backend."""
+    async def approve(name: str, arguments: dict[str, Any]) -> bool:
+        target = renderer.tool_target(name, arguments)
+        renderer.pause_activity()
+        try:
+            answer = await session.prompt_async(f"Allow {name} {target}? [y/N] ")
+        except (EOFError, KeyboardInterrupt):
+            return False
+        finally:
+            renderer.resume_activity()
+        return answer.strip().lower() in {"y", "yes"}
+
+    return approve

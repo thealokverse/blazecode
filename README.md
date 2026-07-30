@@ -112,7 +112,7 @@ Type `/` for fuzzy completion.
 |---------|---------|
 | `/help` | List commands |
 | `/status` | Provider, model, approval, tokens, mascot |
-| `/approval on\|off` | Toggle confirmation for dangerous actions |
+| `/approval on\|off\|plan` | Require confirmation, allow mutations, or use read-only mode |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
 | `/skills` | List skills; `/skills add <path>` installs one |

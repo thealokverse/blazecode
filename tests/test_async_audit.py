@@ -15,7 +15,7 @@ from blazecode.mascot import Mascot
 from blazecode.permissions.approval import ApprovalManager
 from blazecode.tools import TOOLS
 from blazecode.ui import repl
-from blazecode.ui.completer import COMMANDS, slash_completer
+from blazecode.ui.completer import COMMANDS, is_slash_command, slash_completer
 
 PACKAGE = Path(__file__).parents[1] / "blazecode"
 
@@ -48,6 +48,8 @@ def test_repl_awaits_prompt_async_and_wires_slash_completer() -> None:
         slash_completer().get_completions(Document("/"), CompleteEvent())
     )
     assert {completion.text for completion in completions} == set(COMMANDS)
+    assert is_slash_command(Document("/status"))
+    assert not is_slash_command(Document("explain this repo"))
 
 
 def test_command_registry_and_dispatch_cover_all_commands() -> None:

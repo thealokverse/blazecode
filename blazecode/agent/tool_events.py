@@ -80,7 +80,7 @@ async def execute_tool(
     tool = TOOLS.get(resolved) if resolved else None
     if tool is None:
         return ToolResult(f"Error: unknown tool {call.name!r}", is_error=True)
-    approved, reason = approval.approve(tool, call.arguments)
+    approved, reason = await approval.approve_async(tool, call.arguments)
     if not approved:
         return ToolResult(f"Error: {reason}", is_error=True)
     try:
