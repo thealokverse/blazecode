@@ -54,7 +54,7 @@ async def test_agent_executes_tool_then_returns_final_text(tmp_path: Path) -> No
     settings = Settings(
         "test",
         "model",
-        "auto",
+        "off",
         [Provider("test", "https://example.test/v1", "none", ["model"])],
     )
     observer = RecordingObserver()
@@ -64,7 +64,7 @@ async def test_agent_executes_tool_then_returns_final_text(tmp_path: Path) -> No
         settings,
         tmp_path,
         store,
-        ApprovalManager("auto"),
+        ApprovalManager("off"),
         observer,
         mascot,
         streamer,
@@ -84,7 +84,7 @@ async def test_agent_executes_tool_then_returns_final_text(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_plan_mode_returns_denied_tool_result(tmp_path: Path) -> None:
+async def test_approval_on_without_callback_denies_bash(tmp_path: Path) -> None:
     invocation = 0
 
     async def streamer(*args: Any) -> AsyncIterator[Event]:
@@ -100,7 +100,7 @@ async def test_plan_mode_returns_denied_tool_result(tmp_path: Path) -> None:
     settings = Settings(
         "p",
         "m",
-        "plan",
+        "on",
         [Provider("p", "https://example.test/v1", "none", ["m"])],
     )
     store = SessionStore(directory=tmp_path / "sessions")
@@ -108,12 +108,12 @@ async def test_plan_mode_returns_denied_tool_result(tmp_path: Path) -> None:
         settings,
         tmp_path,
         store,
-        ApprovalManager("plan"),
+        ApprovalManager("on"),
         streamer=streamer,
     )
     await loop.run("run it")
     assert not (tmp_path / "forbidden").exists()
-    assert "read-only" in store.load()[2].content
+    assert "approval required" in store.load()[2].content
 
 
 @pytest.mark.asyncio
@@ -126,7 +126,7 @@ async def test_cancel_mid_batch_fills_missing_tool_results(tmp_path: Path) -> No
     settings = Settings(
         "p",
         "m",
-        "auto",
+        "off",
         [Provider("p", "https://example.test/v1", "none", ["m"])],
     )
     store = SessionStore(directory=tmp_path / "sessions")
@@ -134,7 +134,7 @@ async def test_cancel_mid_batch_fills_missing_tool_results(tmp_path: Path) -> No
         settings,
         tmp_path,
         store,
-        ApprovalManager("auto"),
+        ApprovalManager("off"),
         streamer=streamer,
     )
     loop.request_cancel()
@@ -178,7 +178,7 @@ async def test_alias_tool_names_match_in_history(tmp_path: Path) -> None:
     settings = Settings(
         "p",
         "m",
-        "auto",
+        "off",
         [Provider("p", "https://example.test/v1", "none", ["m"])],
     )
     store = SessionStore(directory=tmp_path / "sessions")
@@ -186,7 +186,7 @@ async def test_alias_tool_names_match_in_history(tmp_path: Path) -> None:
         settings,
         tmp_path,
         store,
-        ApprovalManager("auto"),
+        ApprovalManager("off"),
         streamer=streamer,
     )
     assert await loop.run("run") == "ok"

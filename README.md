@@ -63,7 +63,7 @@ First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.a
 - **Streaming** responses with a live status mascot
 - **Five tools**: `read`, `write`, `edit`, `bash`, `grep`
 - **Providers**: OpenAI-compatible endpoints (cloud + local)
-- **Approvals**: ask / auto / plan, toggled with `/approval`
+- **Approvals**: `/approval on|off` for shell command confirmation
 - **Sessions**: append-only JSONL under `~/.blazecode/sessions`
 - **Skills**: optional `SKILL.md` packs, loaded when relevant
 - **Compaction**: keeps context lean on long chats
@@ -76,7 +76,7 @@ First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.a
 {
   "default_provider": "openai",
   "default_model": "gpt-4.1",
-  "approval_mode": "ask",
+  "approval_mode": "on",
   "providers": [
     {
       "name": "openai",
@@ -98,9 +98,8 @@ Prefer `env:VARIABLE` for API keys. Inline keys are stored with `0600` permissio
 
 | `approval_mode` | Behavior |
 |-----------------|----------|
-| `ask` | Confirm mutating tools (`write` / `edit` / `bash`) |
-| `auto` | Allow mutations without prompts |
-| `plan` | Read-only |
+| `on` | Confirm before shell (`bash`) commands |
+| `off` | Run all tools without prompts |
 
 ---
 
@@ -112,7 +111,7 @@ Type `/` for fuzzy completion.
 |---------|---------|
 | `/help` | List commands |
 | `/status` | Provider, model, approval, tokens, mascot |
-| `/approval on\|off\|plan` | Require confirmation, allow mutations, or use read-only mode |
+| `/approval on\|off` | Confirm shell commands, or run tools freely |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
 | `/skills` | List skills; `/skills add <path>` installs one |
@@ -133,11 +132,11 @@ Type `/` for fuzzy completion.
 | `bash` | Foreground shell command (timeout) |
 | `grep` | Regex search |
 
-Paths stay inside the working directory. Mutating tools go through the approval gate.
+Paths stay inside the working directory. Shell commands go through the approval gate when approval is on.
 
 **Skills** live in `~/.blazecode/skills/` or `./.blazecode/skills/` as directories containing `SKILL.md`. Only names/descriptions enter the base prompt; full instructions load when the task matches.
 
-Project guidance is picked up from `AGENTS.md`, `BLAZECODE.md`, or `README.md`.
+Project guidance is loaded from `AGENTS.md` in the working directory when present.
 
 
 ---

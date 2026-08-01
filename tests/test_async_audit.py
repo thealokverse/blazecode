@@ -91,16 +91,15 @@ def test_tools_and_approval_boundaries() -> None:
     assert set(TOOLS) == {"read", "write", "edit", "bash", "grep"}
     prompted: list[str] = []
     manager = ApprovalManager(
-        "ask", lambda name, arguments: prompted.append(name) is None
+        "on", lambda name, arguments: prompted.append(name) is None
     )
-    for name in ("read", "grep"):
+    for name in ("read", "grep", "write", "edit"):
         allowed, _ = manager.approve(TOOLS[name], {})
         assert allowed
     assert prompted == []
-    for name in ("write", "edit", "bash"):
-        allowed, _ = manager.approve(TOOLS[name], {})
-        assert allowed
-    assert prompted == ["write", "edit", "bash"]
+    allowed, _ = manager.approve(TOOLS["bash"], {"command": "echo hi"})
+    assert allowed
+    assert prompted == ["bash"]
 
 
 def test_mascot_state_transition_is_synchronous() -> None:

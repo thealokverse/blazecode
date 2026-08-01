@@ -19,11 +19,12 @@ Rules:
 - If a tool fails, fix the args once. do not loop the same call.
 - Do not expose secrets.
 
-Project instructions below override style preferences (not safety).
+AGENTS.md in the working directory overrides style preferences (not safety).
 """
 
 _CONTEXT_LINE_LIMIT = 100
 _LISTING_LIMIT = 80
+_AGENTS_FILE = "AGENTS.md"
 
 
 def _truncate_lines(text: str, limit: int = _CONTEXT_LINE_LIMIT) -> str:
@@ -34,14 +35,14 @@ def _truncate_lines(text: str, limit: int = _CONTEXT_LINE_LIMIT) -> str:
 
 
 def project_instructions(cwd: Path) -> str:
-    for name in ("AGENTS.md", "BLAZECODE.md", "README.md"):
-        path = cwd / name
-        if path.is_file():
-            try:
-                return _truncate_lines(path.read_text(encoding="utf-8", errors="replace"))
-            except OSError:
-                continue
-    return ""
+    # only AGENTS.md; keep project guidance explicit and opt in
+    path = cwd / _AGENTS_FILE
+    if not path.is_file():
+        return ""
+    try:
+        return _truncate_lines(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return ""
 
 
 def directory_listing(cwd: Path) -> str:

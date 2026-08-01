@@ -105,7 +105,7 @@ class Renderer:
         self._stop_live()
         try:
             return Confirm.ask(
-                f"Allow [bold]{name}[/bold] {target}?",
+                f"Run [bold]{target}[/bold]?",
                 default=False,
                 console=self.console,
             )

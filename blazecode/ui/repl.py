@@ -172,29 +172,21 @@ async def _command(
 
 
 def _set_approval(settings: Settings, argument: str, console: Console) -> Settings:
-    token = argument.lower()
+    token = argument.lower().strip()
     if not token:
-        console.print(
-            f"Approval: {settings.approval_mode} "
-            f"({'on' if settings.approval_mode == 'ask' else 'off' if settings.approval_mode == 'auto' else settings.approval_mode})"
-        )
+        state = "on" if settings.approval_mode == "on" else "off"
+        console.print(f"Approval: {state}")
         console.print("Usage: /approval on | /approval off")
         return settings
-    mapping = {
-        "on": "ask",
-        "off": "auto",
-        "ask": "ask",
-        "auto": "auto",
-        "plan": "plan",
-    }
-    mode = mapping.get(token)
-    if mode is None or mode not in APPROVAL_MODES:
+    if token not in APPROVAL_MODES:
         console.print("Usage: /approval on | /approval off", style="red")
         return settings
-    settings.approval_mode = mode
+    settings.approval_mode = token
     settings.save()
-    label = "on" if mode == "ask" else "off" if mode == "auto" else mode
-    console.print(f"Approval {label} ({mode}).")
+    if token == "on":
+        console.print("Approval on. shell commands will ask for confirmation.")
+    else:
+        console.print("Approval off. tools run without prompts.")
     return settings
 
 
@@ -205,7 +197,7 @@ def _interactive_approver(
         target = renderer.tool_target(name, arguments)
         renderer.pause_activity()
         try:
-            answer = await session.prompt_async(f"Allow {name} {target}? [y/N] ")
+            answer = await session.prompt_async(f"Run {target}? [y/N] ")
         except (EOFError, KeyboardInterrupt):
             return False
         finally:

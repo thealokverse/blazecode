@@ -7,7 +7,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-APPROVAL_MODES = {"ask", "auto", "plan"}
+APPROVAL_MODES = {"on", "off"}
+
+# older configs used ask/auto/plan
+_LEGACY_APPROVAL = {"ask": "on", "auto": "off", "plan": "on"}
 
 
 def config_home() -> Path:
@@ -58,7 +61,7 @@ class Provider:
 class Settings:
     default_provider: str
     default_model: str
-    approval_mode: str = "ask"
+    approval_mode: str = "on"
     providers: list[Provider] = field(default_factory=list)
     context_window: int = 128_000
     compaction_ratio: float = 0.7
@@ -79,7 +82,7 @@ class Settings:
             settings = cls(
                 default_provider=str(raw.get("default_provider", "")),
                 default_model=str(raw.get("default_model", "")),
-                approval_mode=str(raw.get("approval_mode", "ask")),
+                approval_mode=str(raw.get("approval_mode", "on")),
                 providers=providers,
                 context_window=int(raw.get("context_window", 128_000)),
                 compaction_ratio=float(raw.get("compaction_ratio", 0.7)),
@@ -90,6 +93,9 @@ class Settings:
         return settings
 
     def validate(self) -> None:
+        self.approval_mode = _LEGACY_APPROVAL.get(
+            self.approval_mode, self.approval_mode
+        )
         if self.approval_mode not in APPROVAL_MODES:
             raise ValueError(
                 f"approval_mode must be one of {', '.join(sorted(APPROVAL_MODES))}"

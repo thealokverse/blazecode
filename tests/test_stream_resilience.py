@@ -86,7 +86,7 @@ async def test_agent_honors_cancel_between_iterations(tmp_path: Path) -> None:
     settings = Settings(
         "test",
         "model",
-        "auto",
+        "off",
         [Provider("test", "https://example.test/v1", "none", ["model"])],
     )
     store = SessionStore(directory=tmp_path / "sessions")
@@ -94,7 +94,7 @@ async def test_agent_honors_cancel_between_iterations(tmp_path: Path) -> None:
         settings,
         tmp_path,
         store,
-        ApprovalManager("auto"),
+        ApprovalManager("off"),
         streamer=streamer,
     )
 

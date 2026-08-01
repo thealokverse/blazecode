@@ -9,21 +9,43 @@ from blazecode.tools.base import Tool
 
 ApprovalCallback = Callable[[str, dict[str, Any]], bool | Awaitable[bool]]
 
+# tools that require a yes/no when approval is on
+_SHELL_TOOLS = frozenset({"bash"})
+_LEGACY_MODE = {"ask": "on", "auto": "off", "plan": "on"}
+
 
 @dataclass(slots=True)
 class ApprovalManager:
-    mode: str = "ask"
+    # on: prompt before shell commands. off: run everything without prompts.
+    mode: str = "on"
     callback: ApprovalCallback | None = None
 
     def approve(self, tool: Tool, arguments: dict[str, Any]) -> tuple[bool, str]:
         # sync path for non interactive callers. agent loop uses approve_async.
-        approved, reason = self._policy(tool)
-        if not approved or not tool.mutating or self.mode != "ask":
-            return approved, reason
+        if not self._needs_prompt(tool):
+            return True, ""
+        return self._decide_sync(tool.name, arguments)
+
+    async def approve_async(
+        self, tool: Tool, arguments: dict[str, Any]
+    ) -> tuple[bool, str]:
+        if not self._needs_prompt(tool):
+            return True, ""
+        return await self._decide_async(tool.name, arguments)
+
+    def _normalized_mode(self) -> str:
+        return _LEGACY_MODE.get(self.mode, self.mode)
+
+    def _needs_prompt(self, tool: Tool) -> bool:
+        if self._normalized_mode() != "on":
+            return False
+        return tool.name in _SHELL_TOOLS
+
+    def _decide_sync(self, name: str, arguments: dict[str, Any]) -> tuple[bool, str]:
         if self.callback is None:
             return False, "approval required but no interactive approver is available"
         try:
-            decision = self.callback(tool.name, arguments)
+            decision = self.callback(name, arguments)
         except Exception as exc:
             return False, f"approval prompt failed: {exc}"
         if inspect.isawaitable(decision):
@@ -36,16 +58,13 @@ class ApprovalManager:
             return True, ""
         return False, "user denied approval"
 
-    async def approve_async(
-        self, tool: Tool, arguments: dict[str, Any]
+    async def _decide_async(
+        self, name: str, arguments: dict[str, Any]
     ) -> tuple[bool, str]:
-        approved, reason = self._policy(tool)
-        if not approved or not tool.mutating or self.mode != "ask":
-            return approved, reason
         if self.callback is None:
             return False, "approval required but no interactive approver is available"
         try:
-            decision = self.callback(tool.name, arguments)
+            decision = self.callback(name, arguments)
             if inspect.isawaitable(decision):
                 decision = await decision
         except Exception as exc:
@@ -53,14 +72,3 @@ class ApprovalManager:
         if decision:
             return True, ""
         return False, "user denied approval"
-
-    def _policy(self, tool: Tool) -> tuple[bool, str]:
-        if not tool.mutating:
-            return True, ""
-        if self.mode == "auto":
-            return True, ""
-        if self.mode == "plan":
-            return False, "approval mode 'plan' is read-only"
-        if self.mode != "ask":
-            return False, f"unknown approval mode: {self.mode}"
-        return True, ""

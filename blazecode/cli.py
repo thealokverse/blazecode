@@ -37,7 +37,7 @@ async def _run(
     if prompt is None:
         await run_repl(settings)
         return
-    # headless (-p): honor configured approval mode. ask without a tty fails closed.
+    # headless (-p): approval on without a callback denies shell commands
     renderer = Renderer(console, interactive=False)
     agent = AgentLoop(
         settings,

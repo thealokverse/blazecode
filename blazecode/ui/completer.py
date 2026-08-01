@@ -10,7 +10,7 @@ from prompt_toolkit.application.current import get_app
 COMMANDS: dict[str, str] = {
     "/help": "List commands",
     "/status": "Show provider, model, approval mode, tokens, and Blaze state",
-    "/approval": "Toggle approval: /approval on|off",
+    "/approval": "Shell approval: /approval on|off",
     "/provider": "Add or switch provider",
     "/models": "List or switch models",
     "/skills": "List skills; /skills add <path> installs one",
