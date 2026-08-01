@@ -1,5 +1,3 @@
-"""Discover and selectively load SKILL.md instructions."""
-
 from __future__ import annotations
 
 import re
@@ -14,20 +12,15 @@ _SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 @dataclass(frozen=True, slots=True)
 class Skill:
-    """Metadata and source path for one skill."""
-
     name: str
     description: str
     path: Path
 
     def read(self) -> str:
-        """Read the complete skill instructions."""
         return self.path.read_text(encoding="utf-8")
 
 
 class SkillLoader:
-    """Load global skills, then project-local overrides."""
-
     def __init__(self, cwd: Path) -> None:
         self.cwd = cwd.resolve()
         self._cache: dict[str, Skill] | None = None
@@ -35,16 +28,13 @@ class SkillLoader:
 
     @property
     def roots(self) -> tuple[Path, Path]:
-        """Return global and project-local skill roots."""
         return config_home() / "skills", self.cwd / ".blazecode" / "skills"
 
     def invalidate(self) -> None:
-        """Drop cached discovery results."""
         self._cache = None
         self._summary = None
 
     def discover(self) -> dict[str, Skill]:
-        """Discover valid skill directories in precedence order."""
         if self._cache is not None:
             return self._cache
         found: dict[str, Skill] = {}
@@ -60,7 +50,6 @@ class SkillLoader:
         return found
 
     def summary(self) -> str:
-        """Build cheap skill metadata for the system prompt."""
         if self._summary is not None:
             return self._summary
         skills = self.discover()
@@ -77,7 +66,6 @@ class SkillLoader:
         return self._summary
 
     def relevant(self, prompt: str) -> list[Skill]:
-        """Select skills whose names or description terms match this turn."""
         words = set(re.findall(r"[a-z0-9]+", prompt.lower()))
         selected: list[Skill] = []
         for skill in self.discover().values():
@@ -93,7 +81,6 @@ class SkillLoader:
         return selected
 
     def add(self, source: Path) -> Skill:
-        """Copy a skill directory into the global skill root."""
         source = source.expanduser().resolve()
         skill_file = source / "SKILL.md"
         if not skill_file.is_file():

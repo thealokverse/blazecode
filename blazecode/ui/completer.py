@@ -1,5 +1,3 @@
-"""Slash-command completion."""
-
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -24,8 +22,6 @@ COMMANDS: dict[str, str] = {
 
 
 class SlashCommandCompleter(Completer):
-    """Fuzzy command completer that activates only when the line starts with /."""
-
     def __init__(self) -> None:
         self._inner = FuzzyWordCompleter(
             list(COMMANDS),
@@ -42,16 +38,13 @@ class SlashCommandCompleter(Completer):
 
 
 def slash_completer() -> Completer:
-    """Build the fuzzy popup completer used by the REPL."""
     return SlashCommandCompleter()
 
 
 def is_slash_command(document: Document) -> bool:
-    """Return whether completion should be available for this input line."""
     return document.current_line_before_cursor.startswith("/")
 
 
 @Condition
 def complete_slash_commands_while_typing() -> bool:
-    """Only trigger automatic completion when the user is entering a command."""
     return is_slash_command(get_app().current_buffer.document)

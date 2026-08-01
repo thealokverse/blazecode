@@ -1,5 +1,3 @@
-"""Reusable first-run and provider setup flow."""
-
 from __future__ import annotations
 
 import os
@@ -22,7 +20,6 @@ from blazecode.mascot import FACES, State
 
 
 def verify_provider(base_url: str, api_key: str) -> list[str]:
-    """Synchronously verify a provider and return its model identifiers."""
     key = api_key
     if key.startswith("env:"):
         key = os.environ.get(key[4:], "")
@@ -56,7 +53,6 @@ def verify_provider(base_url: str, api_key: str) -> list[str]:
 def run_onboarding(
     existing: Settings | None = None, console: Console | None = None
 ) -> Settings:
-    """Configure, verify, and select one provider."""
     output = console or Console()
     output.print(f"\n  blaze {FACES[State.IDLE]}", style="bright_cyan")
     if existing is None:
@@ -106,7 +102,7 @@ def run_onboarding(
         settings.upsert_provider(provider, model)
     destination = settings.save()
     output.print(
-        f"\n  ✓ Setup complete — blaze {FACES[State.SUCCESS]}\n"
+        f"\n  ✓ Setup complete. blaze {FACES[State.SUCCESS]}\n"
         f"  Config: {destination}\n"
     )
     return settings
@@ -115,7 +111,6 @@ def run_onboarding(
 def switch_or_add_provider(
     settings: Settings, console: Console | None = None
 ) -> Settings:
-    """Switch to a configured provider or launch the add-provider flow."""
     output = console or Console()
     for index, provider in enumerate(settings.providers, start=1):
         marker = " *" if provider.name == settings.default_provider else ""
@@ -176,5 +171,4 @@ def _friendly_error(exc: Exception) -> str:
 
 
 def needs_onboarding(path: Path | None = None) -> bool:
-    """Return whether configuration is absent."""
     return not (path or config_path()).is_file()

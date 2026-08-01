@@ -1,5 +1,3 @@
-"""Predictable token estimation and history truncation."""
-
 from __future__ import annotations
 
 import json
@@ -9,7 +7,6 @@ from blazecode.session.message import Message
 
 
 def estimate_tokens(messages: Sequence[Message]) -> int:
-    """Estimate message tokens using a cheap character heuristic."""
     if not messages:
         return 0
     characters = 0
@@ -18,7 +15,7 @@ def estimate_tokens(messages: Sequence[Message]) -> int:
         if message.content:
             characters += len(message.content)
         if message.tool_calls:
-            # Avoid full api dump; rough size of tool call payloads.
+            # rough size of tool call payloads without a full dump
             try:
                 characters += len(json.dumps(message.tool_calls, ensure_ascii=False))
             except (TypeError, ValueError):
@@ -33,7 +30,6 @@ def estimate_tokens(messages: Sequence[Message]) -> int:
 def compact_messages(
     messages: Sequence[Message], max_tokens: int, recent_messages: int = 20
 ) -> list[Message]:
-    """Keep the system prompt, current task, and newest complete context."""
     if max_tokens < 1:
         raise ValueError("max_tokens must be positive")
     values = list(messages)
@@ -49,7 +45,7 @@ def compact_messages(
     start = min(current_user, max(0, len(body) - recent_messages))
     keep = body[start:]
 
-    # Shrink from the left; re-estimate only the kept window.
+    # shrink from the left; re estimate only the kept window
     while keep and estimate_tokens(([system] if system else []) + keep) > max_tokens:
         if start >= current_user:
             break
@@ -72,7 +68,6 @@ def compact_messages(
 
 
 def _drop_orphans(messages: list[Message]) -> list[Message]:
-    """Drop orphan tool results and unfinished assistant tool_calls."""
     keep = list(messages)
     while keep and keep[0].role == "tool":
         keep.pop(0)
@@ -140,7 +135,7 @@ def _drop_orphans(messages: list[Message]) -> list[Message]:
             if pending_ids and call_id and call_id not in pending_ids:
                 continue
             if not pending_ids and call_id:
-                # No assistant parent in-window.
+                # no assistant parent in window
                 continue
             repaired.append(message)
             if call_id:

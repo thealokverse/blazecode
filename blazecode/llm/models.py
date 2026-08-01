@@ -1,5 +1,3 @@
-"""Model metadata, provider presets, and disk-backed model-list cache."""
-
 from __future__ import annotations
 
 import json
@@ -30,7 +28,7 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "glm-4": 128_000,
 }
 
-# Ordered onboarding presets: (display_name, provider_name, base_url, env_var|None)
+# ordered onboarding presets: display name, provider name, base url, env var or none
 PROVIDER_PRESETS: list[tuple[str, str, str, str | None]] = [
     ("OpenAI", "openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
     (
@@ -48,7 +46,6 @@ PROVIDER_PRESETS: list[tuple[str, str, str, str | None]] = [
 
 
 def context_window(model: str) -> int:
-    """Return known context capacity or a conservative default."""
     if model in CONTEXT_WINDOWS:
         return CONTEXT_WINDOWS[model]
     lowered = model.lower()
@@ -64,7 +61,6 @@ def _cache_path(base_url: str) -> Path:
 
 
 def load_cached_models(base_url: str, *, ttl: int = MODEL_CACHE_TTL_SECONDS) -> list[str] | None:
-    """Return a non-expired cached model list, or None."""
     path = _cache_path(base_url)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -85,7 +81,6 @@ def load_cached_models(base_url: str, *, ttl: int = MODEL_CACHE_TTL_SECONDS) -> 
 
 
 def save_cached_models(base_url: str, models: list[str]) -> None:
-    """Persist a model list for graceful fallback and faster repeat fetches."""
     if not models:
         return
     path = _cache_path(base_url)
@@ -105,7 +100,6 @@ def save_cached_models(base_url: str, models: list[str]) -> None:
 
 
 def normalize_model_ids(raw: Any) -> list[str]:
-    """Extract model ids from varied OpenAI-compatible /models payloads."""
     if not isinstance(raw, dict):
         return []
     data = raw.get("data", raw.get("models", []))
@@ -127,7 +121,7 @@ def normalize_model_ids(raw: Any) -> list[str]:
 
 
 def rank_models(models: list[str], *, prefer: str | None = None) -> list[str]:
-    """Stable sort that surfaces common coding models without dropping any."""
+    # stable sort that surfaces common coding models without dropping any
     prefer_l = (prefer or "").lower()
 
     def score(model: str) -> tuple[int, str]:

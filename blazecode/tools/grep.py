@@ -1,5 +1,3 @@
-"""Portable in-process text-search tool."""
-
 from __future__ import annotations
 
 import fnmatch
@@ -40,8 +38,6 @@ _SKIP_DIRS = frozenset(
 
 
 class GrepTool(Tool):
-    """Search files recursively with a regular expression."""
-
     name = "grep"
     description = "Search text files with a regular expression and return matching lines."
     schema = {
@@ -70,7 +66,6 @@ class GrepTool(Tool):
     }
 
     async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
-        """Search matching files without starting a subprocess."""
         try:
             regex = re.compile(str(arguments["pattern"]))
             target = resolve_path(cwd, str(arguments.get("path", ".")))

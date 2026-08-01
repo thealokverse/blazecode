@@ -1,5 +1,3 @@
-"""Provider-agnostic coding-agent loop."""
-
 from __future__ import annotations
 
 import asyncio
@@ -33,8 +31,6 @@ Streamer = Callable[
 ]
 
 class AgentLoop:
-    """Stream model output, execute tools, and persist each turn."""
-
     def __init__(
         self,
         settings: Settings,
@@ -61,20 +57,16 @@ class AgentLoop:
         self._tool_defs = [tool.definition() for tool in TOOLS.values()]
 
     def request_cancel(self) -> None:
-        """Cooperatively stop after the current stream or tool finishes."""
         self._cancel = True
 
     def reload_skills(self) -> None:
-        """Refresh skill discovery and rebuild the system prompt next turn."""
         self.skills.invalidate()
         self._system_prompt = None
 
     def replace_messages(self, messages: list[Message]) -> None:
-        """Replace in-memory history after resume or clear."""
         self.messages = messages
 
     async def run(self, prompt: str) -> str:
-        """Run one user turn through completion or an unrecoverable error."""
         self._cancel = False
         self._append(Message(role="user", content=prompt))
         extra_skills = relevant_skill_prompt(prompt, self.skills)

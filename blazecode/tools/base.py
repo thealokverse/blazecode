@@ -1,5 +1,3 @@
-"""Base types and path safeguards shared by tools."""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,8 +8,6 @@ from typing import Any
 
 @dataclass(slots=True)
 class ToolResult:
-    """Result returned by a tool invocation."""
-
     content: str
     is_error: bool = False
     diff: str | None = None
@@ -19,15 +15,12 @@ class ToolResult:
 
 
 class Tool(ABC):
-    """Interface implemented by all model-callable tools."""
-
     name: str
     description: str
     mutating: bool = False
     schema: dict[str, Any]
 
     def definition(self) -> dict[str, Any]:
-        """Return an OpenAI function-tool definition."""
         return {
             "type": "function",
             "function": {
@@ -39,11 +32,10 @@ class Tool(ABC):
 
     @abstractmethod
     async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
-        """Execute this tool within ``cwd``."""
+        ...
 
 
 def resolve_path(cwd: Path, value: str, *, must_exist: bool = True) -> Path:
-    """Resolve ``value`` and reject paths outside ``cwd``."""
     root = cwd.expanduser().resolve()
     candidate = Path(value).expanduser()
     if not candidate.is_absolute():
@@ -57,5 +49,4 @@ def resolve_path(cwd: Path, value: str, *, must_exist: bool = True) -> Path:
 
 
 def error_result(exc: Exception) -> ToolResult:
-    """Convert an expected tool exception into a model-visible error."""
     return ToolResult(content=f"Error: {exc}", is_error=True)

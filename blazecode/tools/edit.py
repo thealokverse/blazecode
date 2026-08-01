@@ -1,5 +1,3 @@
-"""Exact find-and-replace editing tool."""
-
 from __future__ import annotations
 
 from difflib import unified_diff
@@ -10,8 +8,6 @@ from blazecode.tools.base import Tool, ToolResult, error_result, resolve_path
 
 
 class EditTool(Tool):
-    """Apply a deterministic exact-string replacement."""
-
     name = "edit"
     mutating = True
     description = (
@@ -35,7 +31,6 @@ class EditTool(Tool):
     }
 
     async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
-        """Replace text and return a unified diff."""
         try:
             path = resolve_path(cwd, str(arguments["path"]))
             old_string = arguments["old_string"]

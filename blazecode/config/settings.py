@@ -1,5 +1,3 @@
-"""Load and save Blazecode's JSON configuration."""
-
 from __future__ import annotations
 
 import json
@@ -13,20 +11,16 @@ APPROVAL_MODES = {"ask", "auto", "plan"}
 
 
 def config_home() -> Path:
-    """Return Blazecode's state directory."""
     override = os.environ.get("BLAZECODE_HOME")
     return Path(override).expanduser() if override else Path.home() / ".blazecode"
 
 
 def config_path() -> Path:
-    """Return the JSON configuration path."""
     return config_home() / "config.json"
 
 
 @dataclass(slots=True)
 class Provider:
-    """An OpenAI-compatible provider configured by the user."""
-
     name: str
     base_url: str
     api_key: str = "none"
@@ -34,7 +28,6 @@ class Provider:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Provider":
-        """Build a provider from decoded JSON."""
         return cls(
             name=str(value["name"]).strip(),
             base_url=str(value["base_url"]).rstrip("/"),
@@ -43,7 +36,6 @@ class Provider:
         )
 
     def resolved_api_key(self) -> str | None:
-        """Resolve an environment-backed key without exposing it."""
         if self.api_key == "none" or not self.api_key:
             return None
         if self.api_key.startswith("env:"):
@@ -55,7 +47,6 @@ class Provider:
         return self.api_key
 
     def masked_api_key(self) -> str:
-        """Return a safe representation of this provider's key."""
         if self.api_key.startswith("env:") or self.api_key == "none":
             return self.api_key
         if len(self.api_key) <= 8:
@@ -65,8 +56,6 @@ class Provider:
 
 @dataclass(slots=True)
 class Settings:
-    """Top-level Blazecode settings."""
-
     default_provider: str
     default_model: str
     approval_mode: str = "ask"
@@ -76,7 +65,6 @@ class Settings:
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
-        """Load settings from disk and validate their references."""
         source = path or config_path()
         try:
             raw = json.loads(source.read_text(encoding="utf-8"))
@@ -102,7 +90,6 @@ class Settings:
         return settings
 
     def validate(self) -> None:
-        """Validate configuration invariants."""
         if self.approval_mode not in APPROVAL_MODES:
             raise ValueError(
                 f"approval_mode must be one of {', '.join(sorted(APPROVAL_MODES))}"
@@ -138,7 +125,6 @@ class Settings:
             raise ValueError("compaction_ratio must be between 0 and 1")
 
     def provider(self, name: str | None = None) -> Provider:
-        """Return a configured provider by name."""
         target = name or self.default_provider
         for provider in self.providers:
             if provider.name == target:
@@ -146,7 +132,6 @@ class Settings:
         raise ValueError(f"unknown provider: {target}")
 
     def save(self, path: Path | None = None) -> Path:
-        """Atomically save configuration with owner-only permissions."""
         destination = path or config_path()
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         payload = asdict(self)
@@ -164,7 +149,6 @@ class Settings:
         return destination
 
     def upsert_provider(self, provider: Provider, model: str) -> None:
-        """Add or replace a provider and make it active."""
         self.providers = [
             current for current in self.providers if current.name != provider.name
         ]

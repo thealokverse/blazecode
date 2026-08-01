@@ -1,5 +1,3 @@
-"""Append-only JSONL session persistence."""
-
 from __future__ import annotations
 
 import json
@@ -15,8 +13,6 @@ from blazecode.session.message import Message
 
 @dataclass(frozen=True, slots=True)
 class SessionInfo:
-    """Summary of a saved session."""
-
     session_id: str
     path: Path
     modified_at: datetime
@@ -25,8 +21,6 @@ class SessionInfo:
 
 
 class SessionStore:
-    """Persist messages as one JSON object per line."""
-
     def __init__(
         self, session_id: str | None = None, directory: Path | None = None
     ) -> None:
@@ -37,18 +31,15 @@ class SessionStore:
 
     @staticmethod
     def new_id() -> str:
-        """Create a sortable, collision-resistant session identifier."""
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         return f"{stamp}-{uuid.uuid4().hex[:8]}"
 
     def append(self, message: Message) -> None:
-        """Append a single message without rewriting prior records."""
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(message.to_dict(), ensure_ascii=False) + "\n")
             handle.flush()
 
     def load(self) -> list[Message]:
-        """Load every valid message from this session."""
         if not self.path.exists():
             return []
         messages: list[Message] = []
@@ -65,12 +56,10 @@ class SessionStore:
         return messages
 
     def replace_with_new(self) -> None:
-        """Point this store at a fresh session without deleting the old one."""
         self.session_id = self.new_id()
         self.path = self.directory / f"{self.session_id}.jsonl"
 
     def resume(self, session_id: str) -> list[Message]:
-        """Switch to an existing session and load it."""
         if not re.fullmatch(r"[A-Za-z0-9._-]+", session_id):
             raise ValueError("invalid session id")
         candidate = self.directory / f"{session_id}.jsonl"
@@ -81,7 +70,6 @@ class SessionStore:
         return self.load()
 
     def list_sessions(self) -> list[SessionInfo]:
-        """List saved sessions newest first."""
         sessions: list[SessionInfo] = []
         for path in self.directory.glob("*.jsonl"):
             try:
@@ -106,7 +94,6 @@ class SessionStore:
     def export_markdown(
         self, messages: list[Message], destination: Path | None = None
     ) -> Path:
-        """Export a readable Markdown transcript."""
         target = destination or Path.cwd() / f"blazecode-{self.session_id}.md"
         chunks = [f"# Blazecode session {self.session_id}\n"]
         labels = {"user": "User", "assistant": "Blazecode", "tool": "Tool"}

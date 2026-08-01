@@ -1,5 +1,3 @@
-"""Write-file tool."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,8 +9,6 @@ _DIFF_CHAR_LIMIT = 200_000
 
 
 class WriteTool(Tool):
-    """Create or replace a UTF-8 text file."""
-
     name = "write"
     mutating = True
     description = "Write complete UTF-8 content to a file, creating parents as needed."
@@ -27,7 +23,6 @@ class WriteTool(Tool):
     }
 
     async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
-        """Write the supplied content and return its diff."""
         from difflib import unified_diff
 
         try:

@@ -1,5 +1,3 @@
-"""Rich rendering for streaming text, tools, and diffs."""
-
 from __future__ import annotations
 
 import json
@@ -26,8 +24,6 @@ _STATUS: dict[State, str] = {
 
 
 class Renderer:
-    """Render observer callbacks from the agent loop."""
-
     def __init__(
         self,
         console: Console | None = None,
@@ -44,19 +40,16 @@ class Renderer:
         self._tool_target = ""
 
     def on_response_start(self) -> None:
-        """Start a fresh live response region with a thinking status."""
         self._activity = _STATUS.get(State.THINKING)
         self._start_live()
 
     def on_state(self, state: State) -> None:
-        """Update the live mascot state and activity label."""
         if state in _STATUS:
             self._activity = _STATUS[state]
             self._start_live()
         self._refresh_live()
 
     def on_text(self, text: str) -> None:
-        """Stream tokens immediately with no buffering or markdown reparse."""
         self._stop_live()
         self._activity = None
         if not text:
@@ -66,12 +59,10 @@ class Renderer:
         self._flush()
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
-        """Keep the state indicator visible while the tool executes."""
         self._tool_target = _tool_target(name, arguments)
         self._refresh_live()
 
     def on_tool_result(self, name: str, result: ToolResult) -> None:
-        """Clear activity and show one compact completed-tool line."""
         self._stop_live()
         self._activity = None
         if not self.interactive:
@@ -87,14 +78,12 @@ class Renderer:
             self.console.print(f"  ↳ {summary}{suffix}", style=MUTED)
 
     def on_error(self, message: str) -> None:
-        """Render an unrecoverable failure."""
         self._stop_live()
         self._activity = None
         self._finish_line()
         self.console.print(message, style=ERROR)
 
     def on_complete(self) -> None:
-        """Finalize an interactive turn with its terminal state indicator."""
         self._stop_live()
         self._activity = None
         self._finish_line()
@@ -109,11 +98,7 @@ class Renderer:
         self.console.print()
 
     def approve(self, name: str, arguments: dict[str, Any]) -> bool:
-        """Synchronously ask the user before a mutating tool call.
-
-        The REPL uses its prompt-toolkit-native asynchronous approver instead.
-        This remains useful for standalone synchronous integrations.
-        """
+        # sync approver for standalone use. repl uses the async prompt toolkit path.
         from rich.prompt import Confirm
 
         target = _tool_target(name, arguments)
@@ -128,16 +113,13 @@ class Renderer:
             self._start_live()
 
     def pause_activity(self) -> None:
-        """Temporarily remove the live status before another terminal prompt."""
         self._stop_live()
 
     def resume_activity(self) -> None:
-        """Restore the live status after another terminal prompt."""
         self._start_live()
 
     @staticmethod
     def tool_target(name: str, arguments: dict[str, Any]) -> str:
-        """Return a short, safe target description for an approval prompt."""
         return _tool_target(name, arguments)
 
     def _renderable(self) -> Text:
@@ -183,7 +165,6 @@ class Renderer:
 
 
 def render_header(console: Console, model: str, cwd: Path) -> None:
-    """Print the Codex-style startup status box (REPL only)."""
     home = Path.home().resolve()
     resolved = cwd.resolve()
     if resolved == home:
@@ -230,7 +211,6 @@ def _tool_target(name: str, arguments: dict[str, Any]) -> str:
 
 
 def _safe_terminal_text(value: str, limit: int) -> str:
-    """Make model-provided text safe to include in an interactive prompt."""
     rendered = "".join(
         character if character.isprintable() else repr(character)[1:-1]
         for character in value

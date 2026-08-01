@@ -1,5 +1,3 @@
-"""Interactive prompt_toolkit REPL and slash commands."""
-
 from __future__ import annotations
 
 import asyncio
@@ -24,7 +22,6 @@ from blazecode.ui.render import Renderer, render_header
 
 
 async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
-    """Run the interactive Blazecode session."""
     working = (cwd or Path.cwd()).resolve()
     console = Console()
     renderer = Renderer(console)
@@ -175,7 +172,6 @@ async def _command(
 
 
 def _set_approval(settings: Settings, argument: str, console: Console) -> Settings:
-    """Apply /approval on|off (and optional explicit mode names)."""
     token = argument.lower()
     if not token:
         console.print(
@@ -205,7 +201,6 @@ def _set_approval(settings: Settings, argument: str, console: Console) -> Settin
 def _interactive_approver(
     session: PromptSession[str], renderer: Renderer
 ) -> ApprovalCallback:
-    """Build an async approval prompt that shares the REPL's terminal backend."""
     async def approve(name: str, arguments: dict[str, Any]) -> bool:
         target = renderer.tool_target(name, arguments)
         renderer.pause_activity()

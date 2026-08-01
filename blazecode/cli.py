@@ -1,5 +1,3 @@
-"""Typer command-line entry point."""
-
 from __future__ import annotations
 
 import asyncio
@@ -36,11 +34,10 @@ def _version(value: bool) -> None:
 async def _run(
     settings: Settings, prompt: str | None, console: Console
 ) -> None:
-    """Launch the interactive REPL or execute one non-interactive turn."""
     if prompt is None:
         await run_repl(settings)
         return
-    # Headless (-p): honor configured approval mode. "ask" without a TTY fails closed.
+    # headless (-p): honor configured approval mode. ask without a tty fails closed.
     renderer = Renderer(console, interactive=False)
     agent = AgentLoop(
         settings,
@@ -70,7 +67,6 @@ def main(
         typer.Option("--version", callback=_version, is_eager=True),
     ] = False,
 ) -> None:
-    """Start Blazecode or run a single prompt."""
     del version
     console = Console(force_terminal=sys.stdout.isatty())
     try:

@@ -1,5 +1,3 @@
-"""OpenAI-compatible async streaming client."""
-
 from __future__ import annotations
 
 import asyncio
@@ -26,15 +24,11 @@ _shared_lock = asyncio.Lock()
 
 @dataclass(frozen=True, slots=True)
 class TextDelta:
-    """Incremental assistant text."""
-
     text: str
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCallStart:
-    """A complete streamed function call ready for execution."""
-
     call_id: str
     name: str
     arguments: dict[str, Any]
@@ -42,8 +36,6 @@ class ToolCallStart:
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
-    """A locally executed tool result passed through the event layer."""
-
     call_id: str
     name: str
     content: str
@@ -52,16 +44,12 @@ class ToolResult:
 
 @dataclass(frozen=True, slots=True)
 class Done:
-    """Successful end of a completion stream."""
-
     finish_reason: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class Error:
-    """Provider or protocol failure."""
-
     message: str
 
 
@@ -88,7 +76,7 @@ def _headers(
 
 
 def _parse_arguments(raw: str) -> dict[str, Any]:
-    """Parse tool-call arguments, tolerating empty or slightly malformed JSON."""
+    # tolerate empty or slightly malformed json from streamed tool args
     text = (raw or "").strip()
     if not text:
         return {}
@@ -112,7 +100,7 @@ def _parse_arguments(raw: str) -> dict[str, Any]:
 
 
 def _normalize_content(content: Any) -> str | None:
-    """Normalize provider content which may be str, null, or content-part lists."""
+    # providers may send str, null, or content part lists
     if content is None:
         return None
     if isinstance(content, str):
@@ -133,7 +121,6 @@ def _normalize_content(content: Any) -> str | None:
 
 
 def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
-    """Merge one streamed tool-call delta into the accumulator."""
     if not isinstance(part, dict):
         return
     try:
@@ -173,7 +160,7 @@ def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
 
 
 def _merge_name(existing: str, incoming: str) -> str:
-    """Merge streamed name fragments without duplicating a full resend."""
+    # merge streamed name fragments without duplicating a full resend
     if not existing:
         return incoming
     if incoming.startswith(existing):
@@ -234,7 +221,6 @@ async def list_models(
     client: httpx.AsyncClient | None = None,
     use_cache: bool = True,
 ) -> list[str]:
-    """Fetch model identifiers from an OpenAI-compatible endpoint."""
     owned = client is None
     session = client or httpx.AsyncClient(timeout=15)
     last_error: Exception | None = None
@@ -280,7 +266,6 @@ async def stream_completion(
     client: httpx.AsyncClient | None = None,
     max_retries: int = _MAX_RETRIES,
 ) -> AsyncIterator[Event]:
-    """Stream one OpenAI-compatible chat completion as typed events."""
     payload = _build_payload(model, messages, tools)
     owned = False
     if client is None:

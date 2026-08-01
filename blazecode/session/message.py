@@ -1,5 +1,3 @@
-"""Conversation message representation."""
-
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -9,8 +7,6 @@ from typing import Any
 
 @dataclass(slots=True)
 class Message:
-    """One OpenAI-compatible conversation message."""
-
     role: str
     content: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -21,11 +17,10 @@ class Message:
     )
 
     def to_dict(self, *, api: bool = False) -> dict[str, Any]:
-        """Serialize this message for storage or an API request."""
         value = asdict(self)
         if api:
             value.pop("created_at", None)
-            # Providers reject assistant/user/tool messages with a missing content key.
+            # providers reject assistant/user/tool messages with a missing content key
             if value.get("content") is None:
                 value["content"] = ""
         return {
@@ -36,7 +31,6 @@ class Message:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Message":
-        """Deserialize a stored message."""
         return cls(
             role=str(value["role"]),
             content=value.get("content"),

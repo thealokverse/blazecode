@@ -1,5 +1,3 @@
-"""The complete Blazecode tool registry."""
-
 from __future__ import annotations
 
 from blazecode.tools.base import Tool
@@ -11,7 +9,6 @@ from blazecode.tools.write import WriteTool
 
 
 def build_registry() -> dict[str, Tool]:
-    """Create the five-tool registry."""
     tools: list[Tool] = [ReadTool(), WriteTool(), EditTool(), BashTool(), GrepTool()]
     return {tool.name: tool for tool in tools}
 

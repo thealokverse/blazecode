@@ -1,5 +1,3 @@
-"""System prompt and project instruction loading."""
-
 from __future__ import annotations
 
 import os
@@ -18,7 +16,7 @@ Rules:
 - One tool at a time when possible. After a tool result, continue or finish.
 - Paths stay inside the working directory.
 - Never claim success unless a tool result confirms it.
-- If a tool fails, fix the args once — do not loop the same call.
+- If a tool fails, fix the args once. do not loop the same call.
 - Do not expose secrets.
 
 Project instructions below override style preferences (not safety).
@@ -36,7 +34,6 @@ def _truncate_lines(text: str, limit: int = _CONTEXT_LINE_LIMIT) -> str:
 
 
 def project_instructions(cwd: Path) -> str:
-    """Load AGENTS.md, BLAZECODE.md, or README.md from the working directory."""
     for name in ("AGENTS.md", "BLAZECODE.md", "README.md"):
         path = cwd / name
         if path.is_file():
@@ -48,7 +45,6 @@ def project_instructions(cwd: Path) -> str:
 
 
 def directory_listing(cwd: Path) -> str:
-    """Return a shallow listing of project files for system context."""
     root = cwd.resolve()
     try:
         result = subprocess.run(
@@ -81,7 +77,6 @@ def directory_listing(cwd: Path) -> str:
 
 
 def build_system_prompt(cwd: Path, skill_loader: SkillLoader) -> str:
-    """Build the stable system prompt for a session."""
     resolved = cwd.resolve()
     sections = [BASE_PROMPT, f"Working directory: {resolved}"]
     listing = directory_listing(resolved)
@@ -101,7 +96,6 @@ def build_system_prompt(cwd: Path, skill_loader: SkillLoader) -> str:
 
 
 def relevant_skill_prompt(prompt: str, loader: SkillLoader) -> str:
-    """Load complete instructions only for skills relevant to this turn."""
     selected = loader.relevant(prompt)
     if not selected:
         return ""

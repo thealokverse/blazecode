@@ -1,5 +1,3 @@
-"""Small conversions between model tool calls and agent state."""
-
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +26,6 @@ _ALIASES = {
 
 
 def tool_call_message(call: ToolCallStart) -> dict[str, Any]:
-    """Serialize a streamed call for OpenAI-compatible history."""
     arguments = {
         key: value
         for key, value in call.arguments.items()
@@ -46,7 +43,6 @@ def tool_call_message(call: ToolCallStart) -> dict[str, Any]:
 
 
 def resolve_tool_name(name: str) -> str | None:
-    """Map a model-emitted tool name onto the registry key, if any."""
     raw = (name or "").strip()
     if raw in TOOLS:
         return raw
@@ -57,7 +53,6 @@ def resolve_tool_name(name: str) -> str | None:
 
 
 def tool_state(tool: Tool) -> State:
-    """Map a tool to the corresponding Blaze activity state."""
     if tool.name in {"read", "grep"}:
         return State.SEARCHING
     if tool.name in {"write", "edit"}:
@@ -70,7 +65,6 @@ async def execute_tool(
     cwd: Path,
     approval: ApprovalManager,
 ) -> ToolResult:
-    """Run one tool call through approval and return its result."""
     if call.arguments.get("_parse_error"):
         return ToolResult(
             f"Error: invalid tool arguments: {call.arguments['_parse_error']}",
@@ -92,7 +86,6 @@ async def execute_tool(
 
 
 def interrupted_tool_message(call: ToolCallStart) -> dict[str, str | None]:
-    """Build a tool-result payload for a call skipped by cancel."""
     return {
         "role": "tool",
         "content": "Error: interrupted before tool execution",

@@ -1,5 +1,3 @@
-"""Foreground shell-command tool."""
-
 from __future__ import annotations
 
 import asyncio
@@ -12,8 +10,6 @@ from blazecode.tools.base import Tool, ToolResult, error_result
 
 
 class BashTool(Tool):
-    """Run a foreground command in the working directory."""
-
     name = "bash"
     mutating = True
     description = (
@@ -37,7 +33,6 @@ class BashTool(Tool):
     }
 
     async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
-        """Run a command and capture stdout and stderr."""
         process: asyncio.subprocess.Process | None = None
         try:
             command = arguments["command"]
@@ -87,7 +82,6 @@ class BashTool(Tool):
 
 
 async def _kill_process(process: asyncio.subprocess.Process) -> None:
-    """Force-terminate a subprocess (and its group) and wait for exit."""
     if process.returncode is not None:
         return
     pid = process.pid
