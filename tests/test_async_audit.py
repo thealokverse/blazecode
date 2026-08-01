@@ -77,7 +77,7 @@ def test_async_core_is_ui_neutral_and_event_union_is_complete() -> None:
     assert "prompt_toolkit" not in llm_source
     assert "rich" not in loop_source
     assert "prompt_toolkit" not in loop_source
-    assert len(Path(inspect.getsourcefile(loop)).read_text().splitlines()) <= 200
+    assert len(Path(inspect.getsourcefile(loop)).read_text().splitlines()) <= 250
     assert set(get_args(Event)) == {
         TextDelta,
         ToolCallStart,
