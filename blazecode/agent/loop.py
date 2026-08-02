@@ -1,5 +1,6 @@
 # provider agnostic coding agent loop
 # streams model output, runs tools, and persists each turn
+# cooked by light ;)
 
 from __future__ import annotations
 
