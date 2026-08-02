@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from blazecode.config.settings import config_home
 
 DEFAULT_CONTEXT_WINDOW = 128_000
 MODEL_CACHE_TTL_SECONDS = 3600
+MODEL_SELECTION_LIMIT = 6
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-4.1": 1_047_576,
@@ -121,33 +123,101 @@ def normalize_model_ids(raw: Any) -> list[str]:
 
 
 def rank_models(models: list[str], *, prefer: str | None = None) -> list[str]:
-    # stable sort that surfaces common coding models without dropping any
+    # stable sort that surfaces current agent-friendly models
     prefer_l = (prefer or "").lower()
 
-    def score(model: str) -> tuple[int, str]:
+    def score(model: str) -> tuple[int, tuple[int, ...], str]:
         lowered = model.lower()
         rank = 50
         if prefer_l and prefer_l in lowered:
             rank -= 40
         for token, weight in (
-            ("coder", -12),
-            ("code", -10),
-            ("sonnet", -8),
-            ("gpt-4.1", -8),
-            ("gpt-4o", -6),
-            ("gemini-2.5", -6),
-            ("opus", -5),
-            ("flash", -3),
-            ("mini", -1),
-            ("embed", 30),
-            ("tts", 30),
-            ("whisper", 30),
-            ("image", 25),
-            ("vision", 8),
-            ("moderation", 30),
+            ("codex", -40),
+            ("coder", -35),
+            ("code", -20),
+            ("gpt-5", -24),
+            ("claude-opus-4", -22),
+            ("claude-sonnet-4", -20),
+            ("gemini-3", -20),
+            ("gemini-2.5", -16),
+            ("grok-4", -16),
+            ("glm-4.7", -16),
+            ("kimi-k2", -15),
+            ("deepseek-r1", -14),
+            ("deepseek-v3", -14),
+            ("qwen3", -14),
+            ("opus", -8),
+            ("sonnet", -7),
+            ("pro", -5),
+            ("flash", 3),
+            ("mini", 6),
         ):
             if token in lowered:
                 rank += weight
-        return rank, lowered
+        versions = tuple(-int(value) for value in re.findall(r"\d+", lowered))
+        return rank, versions, lowered
 
     return sorted(models, key=score)
+
+
+_IRRELEVANT_MODEL_TOKENS = (
+    "audio",
+    "dall-e",
+    "embedding",
+    "image",
+    "moderation",
+    "music",
+    "realtime",
+    "rerank",
+    "speech",
+    "sora",
+    "transcri",
+    "tts",
+    "veo",
+    "video",
+    "voice",
+    "whisper",
+)
+
+_DEPRECATED_MODEL_TOKENS = (
+    "-alpha",
+    "-beta",
+    "babbage",
+    "chatgpt-",
+    "claude-1",
+    "claude-2",
+    "claude-3-",
+    "code-davinci",
+    "curie",
+    "davinci",
+    "deprecated",
+    "gemini-1",
+    "gpt-3",
+    "gpt-4",
+    "legacy",
+    "palm",
+    "preview",
+    "retired",
+)
+
+
+def select_models(models: list[str], *, limit: int = MODEL_SELECTION_LIMIT) -> list[str]:
+    """Return a compact, current list suitable for an agent model picker."""
+    unique = list(dict.fromkeys(model.strip() for model in models if model.strip()))
+    relevant = [
+        model
+        for model in unique
+        if not any(token in model.lower() for token in _IRRELEVANT_MODEL_TOKENS)
+    ]
+    current = [
+        model
+        for model in relevant
+        if not any(token in model.lower() for token in _DEPRECATED_MODEL_TOKENS)
+    ]
+    # A small or self-hosted provider may expose only an older, still usable LLM.
+    # Do not turn that into an onboarding dead end.
+    selected = current or relevant
+    ranked = rank_models(selected)
+    if ranked and all("glm-" in model.lower() for model in ranked):
+        return ranked
+    return ranked[:limit] if len(ranked) > limit else ranked

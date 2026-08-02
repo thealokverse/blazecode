@@ -108,3 +108,26 @@ def test_api_key_masking_and_late_provider_resolution(
 
 def test_friendly_error_handles_empty_exception_messages() -> None:
     assert onboarding._friendly_error(EOFError()) == "EOFError"
+
+
+def test_onboarding_retries_empty_model_lists_without_recursing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = io.StringIO()
+    console = Console(file=stream, force_terminal=False, color_system=None)
+    choices = iter([1, 1, 1, 1])
+    responses = iter([[], [], ["glm-4.7"]])
+    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
+    monkeypatch.setattr(onboarding.IntPrompt, "ask", lambda *args, **kwargs: next(choices))
+    monkeypatch.setattr(
+        onboarding,
+        "_collect_provider",
+        lambda choice, output: Provider("zai", "https://example.test/v1", "key", []),
+    )
+    monkeypatch.setattr(
+        onboarding, "verify_provider", lambda base_url, api_key: next(responses)
+    )
+
+    settings = onboarding.run_onboarding(console=console)
+    assert settings.default_model == "glm-4.7"
+    assert stream.getvalue().count("Welcome to Blazecode!") == 1

@@ -8,6 +8,8 @@ from pathlib import Path
 from blazecode.config.settings import config_home
 
 _SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_MAX_SKILL_BYTES = 64 * 1024
+_BUILTIN_ROOT = Path(__file__).with_name("builtin")
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,7 +19,10 @@ class Skill:
     path: Path
 
     def read(self) -> str:
-        return self.path.read_text(encoding="utf-8")
+        try:
+            return _read_skill(self.path)
+        except (OSError, UnicodeError, ValueError):
+            return ""
 
 
 class SkillLoader:
@@ -25,29 +30,59 @@ class SkillLoader:
         self.cwd = cwd.resolve()
         self._cache: dict[str, Skill] | None = None
         self._summary: str | None = None
+        self._issues: list[str] = []
 
     @property
-    def roots(self) -> tuple[Path, Path]:
-        return config_home() / "skills", self.cwd / ".blazecode" / "skills"
+    def roots(self) -> tuple[Path, Path, Path]:
+        return (
+            _BUILTIN_ROOT,
+            config_home() / "skills",
+            self.cwd / ".blazecode" / "skills",
+        )
+
+    @property
+    def install_root(self) -> Path:
+        return config_home() / "skills"
 
     def invalidate(self) -> None:
         self._cache = None
         self._summary = None
+        self._issues = []
 
     def discover(self) -> dict[str, Skill]:
         if self._cache is not None:
             return self._cache
         found: dict[str, Skill] = {}
+        self._issues = []
         for root in self.roots:
             if not root.is_dir():
                 continue
-            for skill_file in sorted(root.glob("*/SKILL.md")):
-                name, description = _metadata(skill_file)
-                if not _valid_skill_name(name):
+            skill_files = [
+                *sorted(root.glob("*.md")),
+                *sorted(root.glob("*/SKILL.md")),
+            ]
+            names_in_root: set[str] = set()
+            for skill_file in skill_files:
+                try:
+                    name, description = _metadata(skill_file)
+                except (OSError, UnicodeError, ValueError) as exc:
+                    self._issues.append(f"{skill_file}: {exc}")
                     continue
+                if not _valid_skill_name(name):
+                    self._issues.append(f"{skill_file}: invalid skill name {name!r}")
+                    continue
+                if name in names_in_root:
+                    self._issues.append(f"{skill_file}: duplicate skill name {name!r}")
+                    continue
+                names_in_root.add(name)
+                # Later roots are user scopes and deliberately override built-ins.
                 found[name] = Skill(name, description, skill_file)
         self._cache = found
         return found
+
+    def issues(self) -> list[str]:
+        self.discover()
+        return list(self._issues)
 
     def summary(self) -> str:
         if self._summary is not None:
@@ -76,30 +111,47 @@ class SkillLoader:
             description_matches = words & {
                 word for word in description_terms if len(word) >= 5
             }
-            if words & name_terms or len(description_matches) >= 2:
+            name_matches = any(
+                len(word) >= 3
+                and any(
+                    term.startswith(word) or word.startswith(term)
+                    for term in name_terms
+                )
+                for word in words
+            )
+            if name_matches or len(description_matches) >= 2:
                 selected.append(skill)
         return selected
 
     def add(self, source: Path) -> Skill:
         source = source.expanduser().resolve()
-        skill_file = source / "SKILL.md"
-        if not skill_file.is_file():
-            raise ValueError(f"{source} does not contain SKILL.md")
+        if source.is_file():
+            if source.suffix.lower() != ".md":
+                raise ValueError("skill files must use the .md extension")
+            skill_file = source
+        else:
+            skill_file = source / "SKILL.md"
+            if not skill_file.is_file():
+                raise ValueError(f"{source} must be a Markdown file or contain SKILL.md")
         name, _ = _metadata(skill_file)
         if not _valid_skill_name(name):
             raise ValueError(
                 f"invalid skill name {name!r}; use letters, digits, '.', '_' or '-'"
             )
-        root = self.roots[0].resolve()
+        root = self.install_root.resolve()
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        destination = (root / name).resolve()
+        destination = (root / source.name).resolve()
         if not destination.is_relative_to(root) or destination == root:
             raise ValueError(f"skill path escapes skills directory: {name!r}")
         if destination.exists():
             raise FileExistsError(f"skill already exists: {name}")
-        shutil.copytree(source, destination)
+        if source.is_file():
+            shutil.copy2(source, destination)
+        else:
+            shutil.copytree(source, destination)
         self.invalidate()
-        return self.discover()[name]
+        description = _metadata(destination if source.is_file() else destination / "SKILL.md")[1]
+        return Skill(name, description, destination if source.is_file() else destination / "SKILL.md")
 
 
 def _valid_skill_name(name: str) -> bool:
@@ -107,14 +159,19 @@ def _valid_skill_name(name: str) -> bool:
 
 
 def _metadata(path: Path) -> tuple[str, str]:
-    text = path.read_text(encoding="utf-8")
-    default_name = path.parent.name
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("must be a regular Markdown file")
+    text = _read_skill(path)
+    default_name = path.stem if path.name != "SKILL.md" else path.parent.name
     name = default_name
     description = ""
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) == 3:
-            for line in parts[1].splitlines():
+    body = text
+    if text.startswith("---\n"):
+        separator = text.find("\n---", 4)
+        if separator != -1:
+            metadata = text[4:separator]
+            body = text[separator + 4 :].lstrip("\r\n")
+            for line in metadata.splitlines():
                 key, separator, value = line.partition(":")
                 if not separator:
                     continue
@@ -125,9 +182,21 @@ def _metadata(path: Path) -> tuple[str, str]:
                 elif key.strip() == "description":
                     description = value.strip().strip("\"'")
     if not description:
-        body = re.sub(r"\A---.*?---", "", text, count=1, flags=re.DOTALL).strip()
         description = next(
             (line.lstrip("# ").strip() for line in body.splitlines() if line.strip()),
             "No description",
         )
+    description = " ".join(description.split())[:200] or "No description"
     return name, description
+
+
+def _read_skill(path: Path) -> str:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        raise
+    if size < 1:
+        raise ValueError("skill file is empty")
+    if size > _MAX_SKILL_BYTES:
+        raise ValueError(f"skill file exceeds {_MAX_SKILL_BYTES // 1024} KiB")
+    return path.read_text(encoding="utf-8")

@@ -106,6 +106,18 @@ async def test_provider_error_and_model_listing(
     assert "bad key" in events[0].message
 
 
+@pytest.mark.asyncio
+async def test_openrouter_model_listing_uses_text_tool_filter() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["output_modalities"] == "text"
+        assert request.url.params["supported_parameters"] == "tools"
+        return httpx.Response(200, json={"data": [{"id": "openai/gpt-5.2"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        models = await list_models("https://openrouter.ai/api/v1", "key", client=client)
+    assert models == ["openai/gpt-5.2"]
+
+
 def test_settings_secure_save_and_environment_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -118,4 +130,3 @@ def test_settings_secure_save_and_environment_key(
     monkeypatch.setenv("TEST_KEY", "top-secret")
     assert loaded.provider().resolved_api_key() == "top-secret"
     assert "top-secret" not in path.read_text(encoding="utf-8")
-

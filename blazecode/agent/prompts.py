@@ -98,9 +98,9 @@ def build_system_prompt(cwd: Path, skill_loader: SkillLoader) -> str:
 
 def relevant_skill_prompt(prompt: str, loader: SkillLoader) -> str:
     selected = loader.relevant(prompt)
-    if not selected:
-        return ""
-    blocks = [
-        f"<skill name={skill.name!r}>\n{skill.read()}\n</skill>" for skill in selected
-    ]
+    blocks = []
+    for skill in selected:
+        instructions = skill.read()
+        if instructions:
+            blocks.append(f"<skill name={skill.name!r}>\n{instructions}\n</skill>")
     return "\n\n".join(blocks)

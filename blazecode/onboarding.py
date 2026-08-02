@@ -13,8 +13,8 @@ from blazecode.llm.models import (
     PROVIDER_PRESETS,
     load_cached_models,
     normalize_model_ids,
-    rank_models,
     save_cached_models,
+    select_models,
 )
 from blazecode.mascot import FACES, State
 
@@ -35,18 +35,18 @@ def verify_provider(base_url: str, api_key: str) -> list[str]:
                 f"{base_url.rstrip('/')}/models", headers=headers
             )
             response.raise_for_status()
-            models = rank_models(normalize_model_ids(response.json()))
+            models = select_models(normalize_model_ids(response.json()))
             if models:
                 save_cached_models(base_url, models)
                 return models
     except Exception as exc:
         cached = load_cached_models(base_url, ttl=0)
         if cached:
-            return rank_models(cached)
+            return select_models(cached)
         raise exc
     cached = load_cached_models(base_url, ttl=0)
     if cached:
-        return rank_models(cached)
+        return select_models(cached)
     return []
 
 
@@ -70,8 +70,14 @@ def run_onboarding(
         choice = IntPrompt.ask("  ›", choices=choices, console=output)
         try:
             provider = _collect_provider(choice, output)
-            output.print("\n  Fetching available models...")
+            output.print("\n  Fetching recommended models...")
             fetched = verify_provider(provider.base_url, provider.api_key)
+            if fetched:
+                provider.models = fetched
+            if not provider.models:
+                output.print("  ✗ Provider returned no usable text models.", style="red")
+                output.print("  Please try again.\n")
+                continue
             output.print("  ✓ Key verified")
             break
         except Exception as exc:
@@ -79,16 +85,9 @@ def run_onboarding(
                 f"  ✗ Could not verify provider: {_friendly_error(exc)}", style="red"
             )
             output.print("  Please try again.\n")
-    if fetched:
-        provider.models = fetched
-    if not provider.models:
-        output.print("  ✗ Provider returned no models.", style="red")
-        return run_onboarding(existing, output)
-    visible = provider.models[:40]
+    visible = provider.models
     for index, model in enumerate(visible, start=1):
         output.print(f"  {index}. {model}")
-    if len(provider.models) > len(visible):
-        output.print(f"  … {len(provider.models) - len(visible)} more not shown")
     selected = IntPrompt.ask(
         "  ›",
         choices=[str(index) for index in range(1, len(visible) + 1)],

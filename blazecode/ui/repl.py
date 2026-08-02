@@ -8,7 +8,6 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import DummyHistory, FileHistory
 from rich.console import Console
 from rich.prompt import IntPrompt
-from rich.table import Table
 
 from blazecode.agent.loop import AgentLoop
 from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
@@ -17,7 +16,7 @@ from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
 from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
 from blazecode.session.store import SessionStore
-from blazecode.ui.completer import COMMANDS, complete_slash_commands_while_typing, slash_completer
+from blazecode.ui.completer import complete_slash_commands_while_typing, slash_completer
 from blazecode.ui.render import Renderer, render_header
 
 
@@ -91,12 +90,7 @@ async def _command(
     if command == "/exit":
         console.print("Bye! Catch you later.")
         return True, settings
-    if command == "/help":
-        table = Table(show_header=False, box=None)
-        for name, description in COMMANDS.items():
-            table.add_row(name, description)
-        console.print(table)
-    elif command == "/status":
+    if command == "/status":
         console.print(
             f"Provider: {settings.default_provider}\n"
             f"Model: {settings.default_model}\n"
@@ -124,7 +118,11 @@ async def _command(
         settings.save()
     elif command == "/skills":
         if argument.startswith("add "):
-            source = Path(argument[4:].strip())
+            source_text = argument[4:].strip()
+            if not source_text:
+                console.print("Usage: /skills add <file.md or directory>", style="red")
+                return False, settings
+            source = Path(source_text)
             try:
                 skill = agent.skills.add(source)
                 agent.reload_skills()
@@ -132,11 +130,16 @@ async def _command(
             except (OSError, ValueError, FileExistsError) as exc:
                 console.print(f"Could not add skill: {exc}", style="red")
         else:
+            agent.reload_skills()
             skills = agent.skills.discover()
             if not skills:
                 console.print("No skills loaded.")
-            for skill in skills.values():
-                console.print(f"- {skill.name}: {skill.description}")
+            else:
+                for skill in sorted(skills.values(), key=lambda item: item.name.lower()):
+                    console.print(f"- {skill.name}: {skill.description}")
+            issues = agent.skills.issues()
+            for issue in issues:
+                console.print(f"Skipped skill: {issue}", style="yellow")
     elif command == "/export":
         destination = Path(argument).expanduser() if argument else None
         try:
@@ -163,11 +166,15 @@ async def _command(
                 choices=[str(index) for index in range(1, len(sessions) + 1)],
                 console=console,
             )
-            messages = store.resume(sessions[selected - 1].session_id)
-            agent.replace_messages(messages)
-            console.print(f"Resumed {store.session_id}.")
+            try:
+                messages = store.resume(sessions[selected - 1].session_id)
+            except (OSError, ValueError) as exc:
+                console.print(f"Could not resume session: {exc}", style="red")
+            else:
+                agent.replace_messages(messages)
+                console.print(f"Resumed {store.session_id}.")
     else:
-        console.print(f"Unknown command: {command}. Try /help.", style="red")
+        console.print(f"Unknown command: {command}", style="red")
     return False, settings
 
 

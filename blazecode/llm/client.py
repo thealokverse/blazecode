@@ -11,8 +11,8 @@ import httpx
 from blazecode.llm.models import (
     load_cached_models,
     normalize_model_ids,
-    rank_models,
     save_cached_models,
+    select_models,
 )
 
 _MAX_RETRIES = 3
@@ -228,14 +228,14 @@ async def list_models(
         for attempt in range(_MAX_RETRIES):
             try:
                 response = await session.get(
-                    f"{base_url.rstrip('/')}/models",
+                    _models_url(base_url),
                     headers=_headers(api_key, base_url),
                 )
                 if response.status_code in _RETRYABLE_STATUS and attempt + 1 < _MAX_RETRIES:
                     await asyncio.sleep(0.4 * (2**attempt))
                     continue
                 response.raise_for_status()
-                models = rank_models(normalize_model_ids(response.json()))
+                models = select_models(normalize_model_ids(response.json()))
                 if models and use_cache:
                     save_cached_models(base_url, models)
                 return models
@@ -247,13 +247,21 @@ async def list_models(
         if use_cache:
             stale = load_cached_models(base_url, ttl=0)
             if stale:
-                return rank_models(stale)
+                return select_models(stale)
         if last_error is not None:
             raise last_error
         return []
     finally:
         if owned:
             await session.aclose()
+
+
+def _models_url(base_url: str) -> str:
+    url = f"{base_url.rstrip('/')}/models"
+    if "openrouter.ai" in base_url.lower():
+        # Let OpenRouter exclude non-text and non-tool-capable models server-side.
+        return f"{url}?output_modalities=text&supported_parameters=tools&sort=most-popular"
+    return url
 
 
 async def stream_completion(

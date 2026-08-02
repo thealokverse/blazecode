@@ -54,7 +54,6 @@ def test_repl_awaits_prompt_async_and_wires_slash_completer() -> None:
 
 def test_command_registry_and_dispatch_cover_all_commands() -> None:
     expected = {
-        "/help",
         "/status",
         "/approval",
         "/provider",

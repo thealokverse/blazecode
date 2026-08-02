@@ -19,6 +19,7 @@ from blazecode.ui.repl import run_repl
 
 app = typer.Typer(
     add_completion=False,
+    context_settings={"help_option_names": []},
     invoke_without_command=True,
     no_args_is_help=False,
     pretty_exceptions_show_locals=False,
@@ -53,14 +54,7 @@ async def _run(
 def main(
     prompt: Annotated[
         str | None,
-        typer.Option("-p", "--print", help="Run one prompt non-interactively."),
-    ] = None,
-    model: Annotated[
-        str | None, typer.Option("--model", help="Override the configured model.")
-    ] = None,
-    provider: Annotated[
-        str | None,
-        typer.Option("--provider", help="Override the configured provider."),
+        typer.Option("-p", help="Run one prompt non-interactively."),
     ] = None,
     version: Annotated[
         bool,
@@ -71,22 +65,6 @@ def main(
     console = Console(force_terminal=sys.stdout.isatty())
     try:
         settings = run_onboarding(console=console) if needs_onboarding() else Settings.load()
-        if provider:
-            selected = settings.provider(provider)
-            settings.default_provider = selected.name
-            if model is None and settings.default_model not in selected.models:
-                if not selected.models:
-                    raise ValueError(
-                        f"provider {selected.name!r} has no models configured"
-                    )
-                settings.default_model = selected.models[0]
-        if model:
-            if model not in settings.provider().models:
-                raise ValueError(
-                    f"model {model!r} is not configured for "
-                    f"{settings.default_provider!r}"
-                )
-            settings.default_model = model
         asyncio.run(_run(settings, prompt, console))
     except (FileNotFoundError, ValueError, TypeError, KeyError) as exc:
         console.print(f"Configuration error: {exc}", style="red")

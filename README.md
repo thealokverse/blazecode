@@ -29,7 +29,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 |--------|---------|
 | Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash` |
 | Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash -s -- --uninstall` |
-| Pin version | `curl -fsSL ... \| bash -s -- --version v1.1.0` |
+| Pin version | `curl -fsSL ... \| bash -s -- --version v1.2.0` |
 
 Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
 
@@ -51,7 +51,6 @@ uv tool install git+https://github.com/thealokverse/blazecode.git
 blazecode                          # interactive REPL (onboarding on first run)
 blazecode -p "Explain this repo"   # one-shot prompt
 blazecode --version
-blazecode --provider openrouter --model anthropic/claude-sonnet-4
 ```
 
 First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.ai, Kimi, Ollama, or custom) and writes `~/.blazecode/config.json`.
@@ -62,10 +61,10 @@ First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.a
 
 - **Streaming** responses with a live status mascot
 - **Five tools**: `read`, `write`, `edit`, `bash`, `grep`
-- **Providers**: OpenAI-compatible endpoints (cloud + local)
+- **Providers**: OpenAI-compatible endpoints with curated text/code model selection
 - **Approvals**: `/approval on|off` for shell command confirmation
 - **Sessions**: append-only JSONL under `~/.blazecode/sessions`
-- **Skills**: optional `SKILL.md` packs, loaded when relevant
+- **Skills**: optional Markdown instructions, loaded when relevant
 - **Compaction**: keeps context lean on long chats
 
 ---
@@ -109,12 +108,11 @@ Type `/` for fuzzy completion.
 
 | Command | Purpose |
 |---------|---------|
-| `/help` | List commands |
 | `/status` | Provider, model, approval, tokens, mascot |
 | `/approval on\|off` | Confirm shell commands, or run tools freely |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
-| `/skills` | List skills; `/skills add <path>` installs one |
+| `/skills` | List skills; `/skills add <file.md or directory>` installs one |
 | `/export` | Export session to Markdown |
 | `/clear` | Start a fresh session |
 | `/resume` | Resume a saved session |
@@ -134,7 +132,7 @@ Type `/` for fuzzy completion.
 
 Paths stay inside the working directory. Shell commands go through the approval gate when approval is on.
 
-**Skills** live in `~/.blazecode/skills/` or `./.blazecode/skills/` as directories containing `SKILL.md`. Only names/descriptions enter the base prompt; full instructions load when the task matches.
+**Skills** are Markdown instructions in `~/.blazecode/skills/` or `./.blazecode/skills/`. Drop in a file such as `review.md`, or keep using a legacy directory containing `SKILL.md`. Blazecode ships with a Planner example skill. Only names/descriptions enter the base prompt; full instructions load when the task matches.
 
 Project guidance is loaded from `AGENTS.md` in the working directory when present.
 

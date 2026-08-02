@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -35,9 +36,13 @@ class SessionStore:
         return f"{stamp}-{uuid.uuid4().hex[:8]}"
 
     def append(self, message: Message) -> None:
-        with self.path.open("a", encoding="utf-8") as handle:
+        descriptor = os.open(
+            self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600
+        )
+        with os.fdopen(descriptor, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(message.to_dict(), ensure_ascii=False) + "\n")
             handle.flush()
+        self.path.chmod(0o600)
 
     def load(self) -> list[Message]:
         if not self.path.exists():
@@ -65,9 +70,10 @@ class SessionStore:
         candidate = self.directory / f"{session_id}.jsonl"
         if not candidate.is_file():
             raise FileNotFoundError(f"session not found: {session_id}")
+        messages = SessionStore(session_id, self.directory).load()
         self.session_id = session_id
         self.path = candidate
-        return self.load()
+        return messages
 
     def list_sessions(self) -> list[SessionInfo]:
         sessions: list[SessionInfo] = []
@@ -89,7 +95,9 @@ class SessionStore:
             sessions.append(
                 SessionInfo(path.stem, path, modified, title, len(messages))
             )
-        return sorted(sessions, key=lambda item: item.modified_at, reverse=True)
+        return sorted(
+            sessions, key=lambda item: (item.modified_at, item.session_id), reverse=True
+        )
 
     def export_markdown(
         self, messages: list[Message], destination: Path | None = None

@@ -95,8 +95,8 @@ class AgentLoop:
                     return self._finish(final_text, "interrupted", State.IDLE)
 
                 # each iteration is one model round trip
-                self.observer.on_response_start()
                 self._state(State.THINKING)
+                self.observer.on_response_start()
                 text, calls, error = await self._collect_stream(
                     self.settings.provider(), self._api_messages(extra_skills), self._tool_defs
                 )
