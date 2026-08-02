@@ -14,6 +14,9 @@ from blazecode.config.settings import Provider, Settings
 def test_package_version_matches_release_metadata() -> None:
     metadata = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     assert __version__ == metadata["project"]["version"]
+    assert metadata["project"]["authors"] == [
+        {"name": "light", "email": "alightalok007@gmail.com"}
+    ]
 
 
 def test_headless_surface_only_exposes_prompt_and_version() -> None:
