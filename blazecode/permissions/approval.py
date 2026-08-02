@@ -8,6 +8,7 @@ from typing import Any
 from blazecode.tools.base import Tool
 
 ApprovalCallback = Callable[[str, dict[str, Any]], bool | Awaitable[bool]]
+AutoApprovalCallback = Callable[[str, dict[str, Any]], bool | Awaitable[bool]]
 
 # tools that require a yes/no when approval is on
 _SHELL_TOOLS = frozenset({"bash"})
@@ -19,11 +20,15 @@ class ApprovalManager:
     # on: prompt before shell commands. off: run everything without prompts.
     mode: str = "on"
     callback: ApprovalCallback | None = None
+    auto_classifier: AutoApprovalCallback | None = None
+    auto_mode: bool = False
 
     def approve(self, tool: Tool, arguments: dict[str, Any]) -> tuple[bool, str]:
         # sync path for non interactive callers. agent loop uses approve_async.
         if not self._needs_prompt(tool):
             return True, ""
+        if self.auto_mode:
+            return self._decide_auto_sync(tool.name, arguments)
         return self._decide_sync(tool.name, arguments)
 
     async def approve_async(
@@ -31,7 +36,44 @@ class ApprovalManager:
     ) -> tuple[bool, str]:
         if not self._needs_prompt(tool):
             return True, ""
+        if self.auto_mode:
+            return await self._decide_auto_async(tool.name, arguments)
         return await self._decide_async(tool.name, arguments)
+
+    def _decide_auto_sync(
+        self, name: str, arguments: dict[str, Any]
+    ) -> tuple[bool, str]:
+        if self.auto_classifier is None:
+            return False, "Auto Mode safety classifier is unavailable"
+        try:
+            decision = self.auto_classifier(name, arguments)
+        except Exception as exc:
+            return False, f"Auto Mode safety classifier failed: {exc}"
+        if inspect.isawaitable(decision):
+            close = getattr(decision, "close", None)
+            if callable(close):
+                close()
+            return False, "Auto Mode requires an asynchronous safety classifier"
+        return self._auto_result(bool(decision))
+
+    async def _decide_auto_async(
+        self, name: str, arguments: dict[str, Any]
+    ) -> tuple[bool, str]:
+        if self.auto_classifier is None:
+            return False, "Auto Mode safety classifier is unavailable"
+        try:
+            decision = self.auto_classifier(name, arguments)
+            if inspect.isawaitable(decision):
+                decision = await decision
+        except Exception as exc:
+            return False, f"Auto Mode safety classifier failed: {exc}"
+        return self._auto_result(bool(decision))
+
+    @staticmethod
+    def _auto_result(decision: bool) -> tuple[bool, str]:
+        if decision:
+            return True, ""
+        return False, "blocked by Auto Mode safety classifier; do not retry"
 
     def _normalized_mode(self) -> str:
         return _LEGACY_MODE.get(self.mode, self.mode)

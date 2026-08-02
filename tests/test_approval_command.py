@@ -34,6 +34,22 @@ def test_approval_on_off_and_status(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "Approval:" in stream.getvalue()
 
 
+def test_auto_mode_on_off_and_status() -> None:
+    stream = io.StringIO()
+    console = Console(file=stream, force_terminal=False, color_system=None)
+    manager = ApprovalManager("on")
+
+    repl._set_auto(manager, "on", console)
+    assert manager.auto_mode
+
+    repl._set_auto(manager, "status", console)
+    assert manager.auto_mode
+    assert "Auto Mode: on" in stream.getvalue()
+
+    repl._set_auto(manager, "off", console)
+    assert not manager.auto_mode
+
+
 def test_legacy_approval_modes_normalize_on_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,6 +106,57 @@ async def test_approval_off_skips_prompts() -> None:
     allowed, _ = await manager.approve_async(TOOLS["bash"], {"command": "rm -rf /"})
     assert allowed
     assert prompted == 0
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_classifies_each_shell_command_without_prompting() -> None:
+    classified: list[str] = []
+    prompted = 0
+
+    async def classify(name: str, arguments: dict[str, Any]) -> bool:
+        classified.append(str(arguments["command"]))
+        return arguments["command"] == "echo safe"
+
+    async def prompt(name: str, arguments: dict[str, Any]) -> bool:
+        nonlocal prompted
+        prompted += 1
+        return True
+
+    manager = ApprovalManager("on", prompt, auto_classifier=classify)
+    manager.auto_mode = True
+
+    allowed, reason = await manager.approve_async(
+        TOOLS["bash"], {"command": "echo safe"}
+    )
+    assert allowed
+    assert reason == ""
+
+    allowed, reason = await manager.approve_async(
+        TOOLS["bash"], {"command": "rm -rf /"}
+    )
+    assert not allowed
+    assert "Auto Mode" in reason
+    assert classified == ["echo safe", "rm -rf /"]
+    assert prompted == 0
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_only_replaces_actions_that_need_human_approval() -> None:
+    classified = 0
+
+    async def classify(name: str, arguments: dict[str, Any]) -> bool:
+        nonlocal classified
+        classified += 1
+        return False
+
+    manager = ApprovalManager("off", auto_classifier=classify, auto_mode=True)
+    allowed, reason = await manager.approve_async(
+        TOOLS["bash"], {"command": "echo no-approval-needed"}
+    )
+
+    assert allowed
+    assert reason == ""
+    assert classified == 0
 
 
 @pytest.mark.asyncio

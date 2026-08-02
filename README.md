@@ -62,7 +62,7 @@ First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.a
 - **Streaming** responses with a live status mascot
 - **Five tools**: `read`, `write`, `edit`, `bash`, `grep`
 - **Providers**: OpenAI-compatible endpoints with curated text/code model selection
-- **Approvals**: `/approval on|off` for shell command confirmation
+- **Approvals**: manual confirmation or session-scoped Auto Mode
 - **Sessions**: append-only JSONL under `~/.blazecode/sessions`
 - **Skills**: optional Markdown instructions, loaded when relevant
 - **Compaction**: keeps context lean on long chats
@@ -110,6 +110,7 @@ Type `/` for fuzzy completion.
 |---------|---------|
 | `/status` | Provider, model, approval, tokens, mascot |
 | `/approval on\|off` | Confirm shell commands, or run tools freely |
+| `/auto [on\|off\|status]` | Let a safety classifier decide actions that need approval |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
 | `/skills` | List skills; `/skills add <file.md or directory>` installs one |
@@ -131,6 +132,12 @@ Type `/` for fuzzy completion.
 | `grep` | Regex search |
 
 Paths stay inside the working directory. Shell commands go through the approval gate when approval is on.
+
+Auto Mode is an in-memory session toggle. When enabled, every action that would
+otherwise ask for human approval is sent to the active model for an independent
+`APPROVE` or `DENY` verdict. It never falls back to a prompt, accepts only an
+exact `APPROVE`, and fails closed on errors, timeouts, or ambiguous output.
+Actions that do not require approval are unaffected.
 
 **Skills** are Markdown instructions in `~/.blazecode/skills/` or `./.blazecode/skills/`. Drop in a file such as `review.md`, or keep using a legacy directory containing `SKILL.md`. Blazecode ships with a Planner example skill. Only names/descriptions enter the base prompt; full instructions load when the task matches.
 

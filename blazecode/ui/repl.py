@@ -14,6 +14,7 @@ from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
 from blazecode.context.compaction import estimate_tokens
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
+from blazecode.permissions.auto import classify_action
 from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
 from blazecode.session.store import SessionStore
 from blazecode.ui.completer import complete_slash_commands_while_typing, slash_completer
@@ -33,9 +34,15 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
         complete_in_thread=True,
     )
     approval_session: PromptSession[str] = PromptSession(history=DummyHistory())
+    async def auto_classifier(name: str, arguments: dict[str, Any]) -> bool:
+        return await classify_action(
+            settings.provider(), settings.default_model, name, arguments
+        )
+
     approval = ApprovalManager(
-        settings.approval_mode,
-        _interactive_approver(approval_session, renderer),
+        mode=settings.approval_mode,
+        callback=_interactive_approver(approval_session, renderer),
+        auto_classifier=auto_classifier,
     )
     agent = AgentLoop(settings, working, store, approval, renderer)
     render_header(console, settings.default_model, working)
@@ -95,11 +102,15 @@ async def _command(
             f"Provider: {settings.default_provider}\n"
             f"Model: {settings.default_model}\n"
             f"Approval: {settings.approval_mode}\n"
+            f"Auto Mode: {'on' if agent.approval.auto_mode else 'off'}\n"
             f"Session tokens (estimated): {estimate_tokens(agent.messages)}\n"
             f"Blaze: {blaze.state.value} {blaze.face}"
         )
     elif command == "/approval":
         settings = _set_approval(settings, argument, console)
+        agent.approval.mode = settings.approval_mode
+    elif command == "/auto":
+        _set_auto(agent.approval, argument, console)
     elif command == "/provider":
         settings = await asyncio.to_thread(
             switch_or_add_provider, settings, console
@@ -195,6 +206,31 @@ def _set_approval(settings: Settings, argument: str, console: Console) -> Settin
     else:
         console.print("Approval off. tools run without prompts.")
     return settings
+
+
+def _set_auto(
+    approval: ApprovalManager, argument: str, console: Console
+) -> None:
+    token = argument.lower().strip()
+    if token in {"status", "?"}:
+        console.print(f"Auto Mode: {'on' if approval.auto_mode else 'off'}")
+        console.print("Usage: /auto [on | off | status]")
+        return
+    if token in {"on", "enable", "true", "1"}:
+        approval.auto_mode = True
+    elif token in {"off", "disable", "false", "0"}:
+        approval.auto_mode = False
+    elif not token:
+        approval.auto_mode = not approval.auto_mode
+    else:
+        console.print("Usage: /auto [on | off | status]", style="red")
+        return
+    if approval.auto_mode:
+        console.print(
+            "Auto Mode on. approval-gated actions are decided by the safety classifier."
+        )
+    else:
+        console.print("Auto Mode off. approval-gated actions will ask you.")
 
 
 def _interactive_approver(
