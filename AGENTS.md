@@ -1,7 +1,6 @@
 # Blazecode
 
 Professional lightweight terminal coding agent. Simple, fast, reliable.
-Single maintainer. Prefer minimal code over features.
 
 ## Product
 
