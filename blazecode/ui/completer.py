@@ -8,8 +8,9 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.application.current import get_app
 
 COMMANDS: dict[str, str] = {
-    "/status": "Show provider, model, approval mode, tokens, and Blaze state",
+    "/status": "Show provider, model, reasoning, approval, tokens, and Blaze state",
     "/approval": "Shell approval: /approval on|off",
+    "/reasoning": "Reasoning: none|low|medium|high|xhigh|max|adaptive",
     "/provider": "Add or switch provider",
     "/models": "List or switch models",
     "/skills": "List skills; /skills add <file.md or directory> installs one",

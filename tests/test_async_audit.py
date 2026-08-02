@@ -56,6 +56,7 @@ def test_command_registry_and_dispatch_cover_all_commands() -> None:
     expected = {
         "/status",
         "/approval",
+        "/reasoning",
         "/provider",
         "/models",
         "/skills",

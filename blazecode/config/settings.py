@@ -8,6 +8,15 @@ from pathlib import Path
 from typing import Any
 
 APPROVAL_MODES = {"on", "off"}
+REASONING_EFFORTS = (
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "adaptive",
+)
 
 # older configs used ask/auto/plan
 _LEGACY_APPROVAL = {"ask": "on", "auto": "off", "plan": "on"}
@@ -65,6 +74,7 @@ class Settings:
     providers: list[Provider] = field(default_factory=list)
     context_window: int = 128_000
     compaction_ratio: float = 0.7
+    reasoning_effort: str = "none"
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
@@ -84,6 +94,7 @@ class Settings:
                 default_model=str(raw.get("default_model", "")),
                 approval_mode=str(raw.get("approval_mode", "on")),
                 providers=providers,
+                reasoning_effort=str(raw.get("reasoning_effort", "none")),
                 context_window=int(raw.get("context_window", 128_000)),
                 compaction_ratio=float(raw.get("compaction_ratio", 0.7)),
             )
@@ -99,6 +110,11 @@ class Settings:
         if self.approval_mode not in APPROVAL_MODES:
             raise ValueError(
                 f"approval_mode must be one of {', '.join(sorted(APPROVAL_MODES))}"
+            )
+        self.reasoning_effort = self.reasoning_effort.strip().lower()
+        if self.reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError(
+                "reasoning_effort must be one of " + ", ".join(REASONING_EFFORTS)
             )
         for provider in self.providers:
             provider.name = provider.name.strip()

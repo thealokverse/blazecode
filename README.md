@@ -62,6 +62,7 @@ First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.a
 - **Streaming** responses with a live status mascot
 - **Five tools**: `read`, `write`, `edit`, `bash`, `grep`
 - **Providers**: OpenAI-compatible endpoints with curated text/code model selection
+- **Reasoning modes**: `none`, `low`, `medium`, `high`, `xhigh`, `max`, or per-turn `adaptive`
 - **Approvals**: `/approval on|off` for shell command confirmation
 - **Sessions**: append-only JSONL under `~/.blazecode/sessions`
 - **Skills**: optional Markdown instructions, loaded when relevant
@@ -76,6 +77,7 @@ First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.a
   "default_provider": "openai",
   "default_model": "gpt-4.1",
   "approval_mode": "on",
+  "reasoning_effort": "none",
   "providers": [
     {
       "name": "openai",
@@ -100,6 +102,8 @@ Prefer `env:VARIABLE` for API keys. Inline keys are stored with `0600` permissio
 | `on` | Confirm before shell (`bash`) commands |
 | `off` | Run all tools without prompts |
 
+`reasoning_effort` accepts `none`, `low`, `medium`, `high`, `xhigh`, `max`, or `adaptive`. Adaptive asks the active model to select one concrete effort once per user turn and reuses it throughout that turn's tool loop. Unsupported effort levels are rejected by the selected provider.
+
 ---
 
 ## Terminal commands
@@ -108,8 +112,9 @@ Type `/` for fuzzy completion.
 
 | Command | Purpose |
 |---------|---------|
-| `/status` | Provider, model, approval, tokens, mascot |
+| `/status` | Provider, model, reasoning, approval, tokens, mascot |
 | `/approval on\|off` | Confirm shell commands, or run tools freely |
+| `/reasoning <mode>` | Set or inspect reasoning effort |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
 | `/skills` | List skills; `/skills add <file.md or directory>` installs one |

@@ -176,12 +176,26 @@ def _build_payload(
     model: str,
     messages: Sequence[dict[str, Any]],
     tools: Sequence[dict[str, Any]],
+    *,
+    reasoning_effort: str = "none",
+    base_url: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
         "messages": list(messages),
         "stream": True,
     }
+    effort = reasoning_effort.strip().lower()
+    if effort == "adaptive":
+        raise ValueError("adaptive reasoning must be resolved before building payload")
+    if "openrouter.ai" in base_url.lower():
+        payload["reasoning"] = (
+            {"enabled": False}
+            if effort == "none"
+            else {"enabled": True, "effort": effort}
+        )
+    elif effort != "none":
+        payload["reasoning_effort"] = effort
     if tools:
         payload["tools"] = list(tools)
         payload["tool_choice"] = "auto"
@@ -270,11 +284,18 @@ async def stream_completion(
     model: str,
     messages: Sequence[dict[str, Any]],
     tools: Sequence[dict[str, Any]],
+    reasoning_effort: str = "none",
     *,
     client: httpx.AsyncClient | None = None,
     max_retries: int = _MAX_RETRIES,
 ) -> AsyncIterator[Event]:
-    payload = _build_payload(model, messages, tools)
+    payload = _build_payload(
+        model,
+        messages,
+        tools,
+        reasoning_effort=reasoning_effort,
+        base_url=base_url,
+    )
     owned = False
     if client is None:
         session = await _get_shared_client()

@@ -10,7 +10,12 @@ from rich.console import Console
 from rich.prompt import IntPrompt
 
 from blazecode.agent.loop import AgentLoop
-from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
+from blazecode.config.settings import (
+    APPROVAL_MODES,
+    REASONING_EFFORTS,
+    Settings,
+    config_home,
+)
 from blazecode.context.compaction import estimate_tokens
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
@@ -94,12 +99,15 @@ async def _command(
         console.print(
             f"Provider: {settings.default_provider}\n"
             f"Model: {settings.default_model}\n"
+            f"Reasoning: {settings.reasoning_effort}\n"
             f"Approval: {settings.approval_mode}\n"
             f"Session tokens (estimated): {estimate_tokens(agent.messages)}\n"
             f"Blaze: {blaze.state.value} {blaze.face}"
         )
     elif command == "/approval":
         settings = _set_approval(settings, argument, console)
+    elif command == "/reasoning":
+        settings = _set_reasoning(settings, argument, console)
     elif command == "/provider":
         settings = await asyncio.to_thread(
             switch_or_add_provider, settings, console
@@ -194,6 +202,22 @@ def _set_approval(settings: Settings, argument: str, console: Console) -> Settin
         console.print("Approval on. shell commands will ask for confirmation.")
     else:
         console.print("Approval off. tools run without prompts.")
+    return settings
+
+
+def _set_reasoning(settings: Settings, argument: str, console: Console) -> Settings:
+    token = argument.lower().strip()
+    usage = "Usage: /reasoning none|low|medium|high|xhigh|max|adaptive"
+    if not token:
+        console.print(f"Reasoning: {settings.reasoning_effort}")
+        console.print(usage)
+        return settings
+    if token not in REASONING_EFFORTS:
+        console.print(usage, style="red")
+        return settings
+    settings.reasoning_effort = token
+    settings.save()
+    console.print(f"Reasoning set to {token}.")
     return settings
 
 

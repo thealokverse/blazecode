@@ -71,6 +71,7 @@ async def test_agent_honors_cancel_between_iterations(tmp_path: Path) -> None:
         model: str,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
+        reasoning_effort: str,
     ) -> AsyncIterator[Event]:
         nonlocal calls
         calls += 1

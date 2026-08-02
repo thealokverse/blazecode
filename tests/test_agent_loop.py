@@ -40,6 +40,7 @@ async def test_agent_executes_tool_then_returns_final_text(tmp_path: Path) -> No
         model: str,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
+        reasoning_effort: str,
     ) -> AsyncIterator[Event]:
         nonlocal calls
         calls += 1

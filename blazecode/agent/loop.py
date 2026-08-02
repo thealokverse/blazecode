@@ -22,6 +22,11 @@ from blazecode.config.settings import Provider, Settings
 from blazecode.context.compaction import compact_messages
 from blazecode.llm.client import Done, Error, Event, TextDelta, ToolCallStart, stream_completion
 from blazecode.llm.models import DEFAULT_CONTEXT_WINDOW, context_window
+from blazecode.llm.reasoning import (
+    ReasoningClassifier,
+    classify_reasoning_effort,
+    resolve_turn_reasoning,
+)
 from blazecode.mascot import Mascot, State, blaze
 from blazecode.permissions.approval import ApprovalManager
 from blazecode.session.message import Message
@@ -30,10 +35,7 @@ from blazecode.skills.loader import SkillLoader
 from blazecode.tools import TOOLS
 
 # injectable streamer type used by tests and alternate backends
-Streamer = Callable[
-    [str, str | None, str, Sequence[dict[str, Any]], Sequence[dict[str, Any]]],
-    AsyncIterator[Event],
-]
+Streamer = Callable[..., AsyncIterator[Event]]
 
 
 class AgentLoop:
@@ -48,6 +50,7 @@ class AgentLoop:
         observer: Observer | None = None,
         mascot: Mascot = blaze,
         streamer: Streamer = stream_completion,
+        reasoning_classifier: ReasoningClassifier = classify_reasoning_effort,
         max_iterations: int = 40,
     ) -> None:
         self.settings = settings
@@ -59,6 +62,7 @@ class AgentLoop:
         self.mascot = mascot
         # default is the live openai compatible client; tests pass a fake
         self.streamer = streamer
+        self.reasoning_classifier = reasoning_classifier
         # hard cap so a runaway tool chain cannot loop forever
         self.max_iterations = max_iterations
         self.skills = SkillLoader(self.cwd)
@@ -84,10 +88,17 @@ class AgentLoop:
         self.messages = messages
 
     async def run(self, prompt: str) -> str:
-        # one user turn: stream, maybe run tools, repeat until done or error
         self._cancel = False
         self._append(Message(role="user", content=prompt))
-        # skill bodies load only when the prompt looks relevant
+        provider = self.settings.provider()
+        turn_effort = await resolve_turn_reasoning(
+            self.settings.reasoning_effort,
+            provider.base_url,
+            provider.resolved_api_key(),
+            self.settings.default_model,
+            prompt,
+            self.reasoning_classifier,
+        )
         extra_skills = relevant_skill_prompt(prompt, self.skills)
         final_text = ""
         try:
@@ -99,7 +110,10 @@ class AgentLoop:
                 self._state(State.THINKING)
                 self.observer.on_response_start()
                 text, calls, error = await self._collect_stream(
-                    self.settings.provider(), self._api_messages(extra_skills), self._tool_defs
+                    self.settings.provider(),
+                    self._api_messages(extra_skills),
+                    self._tool_defs,
+                    turn_effort,
                 )
                 final_text = text or final_text
 
@@ -160,6 +174,7 @@ class AgentLoop:
         provider: Provider,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
+        reasoning_effort: str,
     ) -> tuple[str, list[ToolCallStart], str | None]:
         # drain one completion into text, tool calls, and optional error
         text_parts: list[str] = []
@@ -171,6 +186,7 @@ class AgentLoop:
                 self.settings.default_model,
                 messages,
                 tools,
+                reasoning_effort,
             ):
                 if self._cancel:
                     return "".join(text_parts), calls, "interrupted"
