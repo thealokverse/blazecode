@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
+from blazecode.llm.models import get_model_entry_by_id
 from blazecode.session.message import Message
 
 
@@ -21,6 +22,19 @@ def estimate_tokens(messages: Sequence[Message]) -> int:
             )
     return _char_tokens(messages)
 
+def estimate_cost(messages: Sequence[Message], model_name: str) -> float:
+    if not messages:
+        return 0.0
+    model_id = model_name.split("/")[-1]
+    model_entry = get_model_entry_by_id(model_id)
+    total_input_tokens = sum(message.input_tokens or 0 for message in messages)
+    total_output_tokens = sum(message.output_tokens or 0 for message in messages)
+    if model_entry and model_entry.pricing:
+        input_price = model_entry.pricing.get("prompt", 0.0)
+        output_price = model_entry.pricing.get("completion", 0.0)
+        cost = (total_input_tokens * float(input_price)) + (total_output_tokens * float(output_price))
+        return cost
+    return 0.0
 
 def _char_tokens(messages: Sequence[Message]) -> int:
     characters = 0

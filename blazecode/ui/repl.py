@@ -12,7 +12,7 @@ from rich.prompt import IntPrompt
 
 from blazecode.agent.loop import AgentLoop
 from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
-from blazecode.context.compaction import estimate_tokens
+from blazecode.context.compaction import estimate_cost, estimate_tokens
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
 from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
@@ -136,6 +136,8 @@ async def _command(
             f"Model: {settings.default_model}\n"
             f"Approval: {settings.approval_mode}\n"
             f"Session tokens: {estimate_tokens(agent.messages)}\n"
+            f"Cost: ${estimate_cost(agent.messages, settings.default_model)}\n"
+            f"Context window: {agent.settings.context_window}\n"
             f"Blaze: {blaze.state.value} {blaze.face}"
         )
     elif command == "/approval":

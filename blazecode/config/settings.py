@@ -5,6 +5,7 @@ import os
 import stat
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+import time
 from typing import Any
 
 APPROVAL_MODES = {"on", "off"}
@@ -20,6 +21,83 @@ def config_home() -> Path:
 
 def config_path() -> Path:
     return config_home() / "config.json"
+
+
+def models_path() -> Path:
+    return config_home() / "models.json"
+
+
+@dataclass(slots=True)
+class Model:
+    provider: str
+    id: str
+    name: str
+    context_length: int
+    pricing: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "Model":
+        if not isinstance(value, dict):
+            raise TypeError("model entries must be objects")
+        pricing = value.get("pricing", {})
+        if not isinstance(pricing, dict):
+            raise TypeError("model pricing must be an object")
+        return cls(
+            provider=str(value.get("provider", "")),
+            id=str(value.get("id", "")),
+            name=str(value.get("name", "")),
+            context_length=int(value.get("context_length", 0)),
+            pricing=pricing,
+        )
+
+
+@dataclass(slots=True)
+class Models:
+    data: dict[str, Model] = field(default_factory=dict)
+    last_updated: float = field(default_factory=lambda: time.time())
+
+    def save(self, path: Path | None = None) -> Path:
+        destination = path or models_path()
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        payload = asdict(self)
+        temporary = destination.with_suffix(".tmp")
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            stat.S_IRUSR | stat.S_IWUSR,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+        os.replace(temporary, destination)
+        destination.chmod(0o600)
+        return destination
+
+    def upsert(self, model: Model) -> None:
+        self.data[model.id] = model
+
+    @classmethod
+    def load(cls, path: Path | None = None) -> "Models":
+        source = path or models_path()
+        try:
+            raw = json.loads(source.read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(f"models not found: {source}") from exc
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid JSON in {source}: {exc}") from exc
+        try:
+            data = raw.get("data") if isinstance(raw, dict) else None
+            if not isinstance(data, dict):
+                raise TypeError("expected an object with a data mapping")
+            return cls(
+                data={
+                    str(model_id): Model.from_dict(value)
+                    for model_id, value in data.items()
+                },
+                last_updated=float(raw.get("last_updated", 0)),
+            )
+        except (TypeError, KeyError, ValueError) as exc:
+            raise ValueError(f"invalid models in {source}: {exc}") from exc
 
 
 @dataclass(slots=True)
