@@ -95,7 +95,7 @@ async def _command(
             f"Provider: {settings.default_provider}\n"
             f"Model: {settings.default_model}\n"
             f"Approval: {settings.approval_mode}\n"
-            f"Session tokens (estimated): {estimate_tokens(agent.messages)}\n"
+            f"Session tokens: {estimate_tokens(agent.messages)}\n"
             f"Blaze: {blaze.state.value} {blaze.face}"
         )
     elif command == "/approval":

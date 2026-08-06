@@ -9,6 +9,9 @@ from blazecode.session.message import Message
 def estimate_tokens(messages: Sequence[Message]) -> int:
     if not messages:
         return 0
+    total_token_usage = sum((message.input_tokens or 0) + (message.output_tokens or 0) for message in messages)
+    if total_token_usage > 0 and len(messages) > 1:
+        return total_token_usage
     characters = 0
     for message in messages:
         characters += 8  # role / framing overhead
