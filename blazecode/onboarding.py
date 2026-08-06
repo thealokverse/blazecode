@@ -10,7 +10,9 @@ from rich.prompt import IntPrompt, Prompt
 
 from blazecode.config.settings import Provider, Settings, config_path
 from blazecode.llm.models import (
+    KeyPolicy,
     PROVIDER_PRESETS,
+    ProviderPreset,
     load_cached_models,
     normalize_model_ids,
     save_cached_models,
@@ -62,11 +64,10 @@ def run_onboarding(
         )
     while True:
         output.print("  Which provider are you using?")
-        for index, (label, *_rest) in enumerate(PROVIDER_PRESETS, start=1):
-            output.print(f"  {index}. {label}")
-        other = len(PROVIDER_PRESETS) + 1
-        output.print(f"  {other}. Other (Custom Base URL)\n")
-        choices = [str(i) for i in range(1, other + 1)]
+        for index, preset in enumerate(PROVIDER_PRESETS, start=1):
+            output.print(f"  {index}. {preset.label}")
+        output.print()
+        choices = [str(value) for value in range(1, len(PROVIDER_PRESETS) + 1)]
         choice = IntPrompt.ask("  ›", choices=choices, console=output)
         try:
             provider = _collect_provider(choice, output)
@@ -136,31 +137,54 @@ def switch_or_add_provider(
 
 
 def _collect_provider(choice: int, console: Console) -> Provider:
-    if 1 <= choice <= len(PROVIDER_PRESETS):
-        _label, name, base_url, variable = PROVIDER_PRESETS[choice - 1]
-        if variable is None:
-            return Provider(name, base_url, "none", [])
-        current = os.environ.get(variable)
-        if current:
-            use_env = Prompt.ask(
-                f"  Use ${variable}?", choices=["y", "n"], default="y", console=console
-            )
-            if use_env == "y":
-                return Provider(name, base_url, f"env:{variable}", [])
-        key = prompt(f"  Enter your {name} API key:\n  › ", is_password=True).strip()
-        if not key:
-            raise ValueError("an API key is required")
-        return Provider(name, base_url, key, [])
-    name = Prompt.ask("  Provider name", console=console).strip()
-    base_url = Prompt.ask("  OpenAI-compatible base URL", console=console).strip()
-    model_text = Prompt.ask(
-        "  Model IDs (comma-separated; fetched list is preferred)",
-        default="",
-        console=console,
-    )
-    models = [item.strip() for item in model_text.split(",") if item.strip()]
-    key = prompt("  API key (blank for none, or env:VARIABLE):\n  › ", is_password=True)
-    return Provider(name, base_url, key.strip() or "none", models)
+    if not (1 <= choice <= len(PROVIDER_PRESETS)):
+        raise ValueError(f"unknown provider choice: {choice}")
+    preset = PROVIDER_PRESETS[choice - 1]
+    name = preset.name or Prompt.ask("  Provider name", console=console).strip()
+    base_url = preset.base_url or Prompt.ask(
+        "  OpenAI-compatible base URL", console=console
+    ).strip()
+    api_key = _collect_api_key(preset, console)
+    models: list[str] = []
+    if preset.ask_models:
+        model_text = Prompt.ask(
+            "  Model IDs (comma-separated; fetched list is preferred)",
+            default="",
+            console=console,
+        )
+        models = [item.strip() for item in model_text.split(",") if item.strip()]
+    return Provider(name, base_url, api_key, models)
+
+
+def _collect_api_key(preset: ProviderPreset, console: Console) -> str:
+    if preset.key_policy is KeyPolicy.NONE:
+        return "none"
+    if (
+        preset.key_policy is KeyPolicy.ENV
+        and preset.env_var
+        and os.environ.get(preset.env_var)
+    ):
+        use_env = Prompt.ask(
+            f"  Use ${preset.env_var}?",
+            choices=["y", "n"],
+            default="y",
+            console=console,
+        )
+        if use_env == "y":
+            return f"env:{preset.env_var}"
+    if preset.key_policy is KeyPolicy.PROMPT:
+        answer = prompt(
+            "  API key (blank for none, or env:VARIABLE):\n  › ",
+            is_password=True,
+        )
+        return answer.strip() or "none"
+    answer = prompt(
+        f"  Enter your {preset.label} API key:\n  › ",
+        is_password=True,
+    ).strip()
+    if not answer:
+        raise ValueError("an API key is required")
+    return answer
 
 
 def _friendly_error(exc: Exception) -> str:

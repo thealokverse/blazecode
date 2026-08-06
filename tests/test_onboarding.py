@@ -110,6 +110,43 @@ def test_friendly_error_handles_empty_exception_messages() -> None:
     assert onboarding._friendly_error(EOFError()) == "EOFError"
 
 
+def test_proxy_preset_prompts_url_and_uses_env_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    console = Console(file=stream, force_terminal=False, color_system=None)
+    answers = iter(["https://my-proxy.example/v1", "y"])
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "key")
+    monkeypatch.setattr(onboarding.Prompt, "ask", lambda *args, **kwargs: next(answers))
+
+    choice = [
+        preset.name for preset in onboarding.PROVIDER_PRESETS
+    ].index("anthropic-proxy") + 1
+    provider = onboarding._collect_provider(choice, console)
+
+    assert provider.name == "anthropic-proxy"
+    assert provider.base_url == "https://my-proxy.example/v1"
+    assert provider.api_key == "env:ANTHROPIC_API_KEY"
+
+
+def test_custom_preset_prompts_name_url_key_and_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream = io.StringIO()
+    console = Console(file=stream, force_terminal=False, color_system=None)
+    answers = iter(["mybox", "https://my.example/v1", "sk-123456ab12", ""])
+    monkeypatch.setattr(onboarding.Prompt, "ask", lambda *args, **kwargs: next(answers))
+    monkeypatch.setattr(onboarding, "prompt", lambda *args, **kwargs: next(answers))
+
+    choice = [preset.name for preset in onboarding.PROVIDER_PRESETS].index("") + 1
+    provider = onboarding._collect_provider(choice, console)
+
+    assert provider.name == "mybox"
+    assert provider.base_url == "https://my.example/v1"
+    assert provider.api_key == "sk-123456ab12"
+    assert provider.models == []
+
+
 def test_onboarding_retries_empty_model_lists_without_recursing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
