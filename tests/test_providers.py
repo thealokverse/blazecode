@@ -6,7 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from blazecode.config.settings import Provider, Settings
+from blazecode.config.settings import Model, Models, Provider, Settings
 from blazecode.llm.client import Done, Error, TextDelta, ToolCallStart, list_models, stream_completion
 
 
@@ -130,3 +130,25 @@ def test_settings_secure_save_and_environment_key(
     monkeypatch.setenv("TEST_KEY", "top-secret")
     assert loaded.provider().resolved_api_key() == "top-secret"
     assert "top-secret" not in path.read_text(encoding="utf-8")
+
+
+def test_models_save_and_load_data_list(tmp_path: Path) -> None:
+    path = tmp_path / "models.json"
+    model = Model("openai", "gpt-4.1", "GPT-4.1", 128_000, {"input": 2})
+    models = Models({model.id: model})
+
+    models.save(path)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "data": {
+            "gpt-4.1": {
+                "provider": "openai",
+                "id": "gpt-4.1",
+                "name": "GPT-4.1",
+                "context_length": 128_000,
+                "pricing": {"input": 2},
+            }
+        },
+        "last_updated": models.last_updated
+    }
+    assert Models.load(path) == models

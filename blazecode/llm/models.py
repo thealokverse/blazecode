@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import json
 import re
 import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from blazecode.config.settings import config_home
+import httpx
+
+from blazecode.config.settings import Model, Models, config_home
 
 DEFAULT_CONTEXT_WINDOW = 128_000
 MODEL_CACHE_TTL_SECONDS = 3600
 MODEL_SELECTION_LIMIT = 6
+MODEL_ENTRIES_CACHE_SECONDS = 24 * 3600  # 24 hours
 
 # substring keys; longer keys win via length-sorted match in context_window()
 CONTEXT_WINDOWS: dict[str, int] = {
@@ -156,6 +160,12 @@ def context_window(model: str) -> int:
     lowered = model.lower()
     if lowered in CONTEXT_WINDOWS:
         return CONTEXT_WINDOWS[lowered]
+    model_entries = get_model_entries()
+    if model_entries and model in model_entries.data:
+        model_id = model.split("/")[-1]
+        entry = model_entries.data[model_id]
+        if isinstance(entry, Model) and entry.context_length:
+            return entry.context_length
     # longest substring first so glm-4.7 beats glm-4
     for key in sorted(CONTEXT_WINDOWS, key=len, reverse=True):
         if key in lowered:
@@ -266,3 +276,46 @@ def select_models(models: list[str], *, limit: int = MODEL_SELECTION_LIMIT) -> l
 def _has_token(model: str, tokens: tuple[str, ...]) -> bool:
     lowered = model.lower()
     return any(token in lowered for token in tokens)
+
+@lru_cache(maxsize=1)
+def get_model_entries() -> Models | None:
+    models = Models.load()
+    if models.data:
+        return models
+    return None
+
+def get_model_entry_by_id(model_id: str) -> Model | None:
+    models = get_model_entries()
+    if models is None:
+        return None
+    data = models.data.get(model_id)
+    return data if isinstance(data, Model) else None
+
+async def fetch_models_entries(n: int = 100) -> None:
+    models: Models = Models().load() if Models.load().data else Models()
+    if models.last_updated and (time.time() - models.last_updated) < MODEL_ENTRIES_CACHE_SECONDS:
+        print("Using cached model entries; last updated:", time.ctime(models.last_updated))
+        print("wait for another", MODEL_ENTRIES_CACHE_SECONDS - (time.time() - models.last_updated))
+        return
+    else:
+        print("Fetching model entries from OpenRouter...")
+    with httpx.Client(timeout=5.0) as client:
+        response = client.get(f"https://openrouter.ai/api/v1/models?limit={n}")
+        response.raise_for_status()
+        response_data: dict[str, list[dict[str, str]]] = response.json()
+        data = response_data["data"]
+        for model_entry in data:
+            id = model_entry.get("id", "").split("/")[-1]
+            provider = model_entry.get("id", "").split("/")[0]
+            name = model_entry.get("name", "")
+            context_length = int(model_entry.get("context_length", 0))
+            pricing = cast(dict[str, Any], model_entry.get("pricing", {}))
+            model = Model(
+                provider=provider,
+                id=id,
+                name=name,
+                context_length=context_length,
+                pricing=pricing,
+            )
+            models.data[model.id] = model
+    models.save()
