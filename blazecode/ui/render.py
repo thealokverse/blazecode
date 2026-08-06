@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
@@ -13,6 +13,7 @@ from rich.text import Text
 from blazecode import __version__
 from blazecode.mascot import FACES, Mascot, State, blaze
 from blazecode.tools.base import ToolResult
+from blazecode.ui.markdown import render_diff, render_markdown, render_partial, split_stable
 from blazecode.ui.theme import ACCENT, ERROR, MUTED, SUCCESS
 
 _STATUS: dict[State, str] = {
@@ -38,8 +39,14 @@ class Renderer:
         self._activity: str | None = None
         self._line_open = False
         self._tool_target = ""
+        self._buffer = ""
+        self._committed = 0
+        self._pending = ""
+        self._tool_output_open = False
+        self._tool_line_start = True
 
     def on_response_start(self) -> None:
+        self._reset_stream()
         self._activity = _STATUS.get(State.THINKING)
         self._start_live()
 
@@ -50,43 +57,91 @@ class Renderer:
         self._refresh_live()
 
     def on_text(self, text: str) -> None:
-        self._stop_live()
-        self._activity = None
         if not text:
             return
-        self.console.print(Text(text), end="", soft_wrap=True)
-        self._line_open = not text.endswith("\n")
-        self._flush()
+        self._activity = None
+        if not self.interactive:
+            self._stop_live()
+            self.console.print(Text(text), end="", soft_wrap=True)
+            self._line_open = not text.endswith("\n")
+            self._flush()
+            return
+        self._buffer += text
+        self._paint_stream()
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
+        self._flush_stream()
         self._tool_target = _tool_target(name, arguments)
+        self._tool_output_open = False
+        self._tool_line_start = True
         self._refresh_live()
 
+    def on_tool_output(self, name: str, chunk: str) -> None:
+        if not chunk or not self.interactive:
+            return
+        self._stop_live()
+        self._activity = None
+        if not self._tool_output_open:
+            self._finish_line()
+            label = _tool_summary(name)
+            target = self._tool_target
+            suffix = f" {target}" if target else ""
+            self.console.print(f"  ↳ {label}{suffix}", style=MUTED)
+            self._tool_output_open = True
+            self._tool_line_start = True
+        # indent each physical line once; keep mid-line chunks intact
+        for line in chunk.splitlines(keepends=True):
+            if self._tool_line_start:
+                self.console.print("    ", style=MUTED, end="")
+                self._tool_line_start = False
+            if line.endswith("\n"):
+                self.console.print(line[:-1], style=MUTED)
+                self._tool_line_start = True
+                self._line_open = False
+            else:
+                self.console.print(line, style=MUTED, end="")
+                self._line_open = True
+        self._flush()
+
     def on_tool_result(self, name: str, result: ToolResult) -> None:
+        self._flush_stream()
         self._stop_live()
         self._activity = None
         if not self.interactive:
+            self._tool_output_open = False
+            self._tool_line_start = True
             return
         self._finish_line()
-        summary = _tool_summary(name)
-        target = self._tool_target
+        if not self._tool_output_open:
+            summary = _tool_summary(name)
+            target = self._tool_target
+            suffix = f" {target}" if target else ""
+            if result.is_error:
+                self.console.print(f"  ↳ {summary}{suffix} failed", style=ERROR)
+            else:
+                self.console.print(f"  ↳ {summary}{suffix}", style=MUTED)
+        elif result.is_error:
+            self.console.print("    failed", style=ERROR)
         self._tool_target = ""
-        suffix = f" {target}" if target else ""
-        if result.is_error:
-            self.console.print(f"  ↳ {summary}{suffix} failed", style=ERROR)
-        else:
-            self.console.print(f"  ↳ {summary}{suffix}", style=MUTED)
+        self._tool_output_open = False
+        self._tool_line_start = True
+        if result.diff and not result.is_error:
+            self.console.print(render_diff(result.diff.rstrip("\n")))
+            self.console.print()
 
     def on_error(self, message: str) -> None:
+        self._flush_stream()
         self._stop_live()
         self._activity = None
         self._finish_line()
         self.console.print(message, style=ERROR)
 
     def on_complete(self) -> None:
+        self._flush_stream()
         self._stop_live()
         self._activity = None
         self._finish_line()
+        self._reset_stream()
         if not self.interactive:
             return
         if self.mascot.state == State.SUCCESS:
@@ -98,7 +153,6 @@ class Renderer:
         self.console.print()
 
     def approve(self, name: str, arguments: dict[str, Any]) -> bool:
-        # sync approver for standalone use. repl uses the async prompt toolkit path.
         from rich.prompt import Confirm
 
         target = _tool_target(name, arguments)
@@ -122,18 +176,69 @@ class Renderer:
     def tool_target(name: str, arguments: dict[str, Any]) -> str:
         return _tool_target(name, arguments)
 
-    def _renderable(self) -> Text:
-        status = self._activity or "…"
-        return Text(f"{self.mascot.face} {status}", style=ACCENT)
+    def _reset_stream(self) -> None:
+        self._buffer = ""
+        self._committed = 0
+        self._pending = ""
+
+    def _paint_stream(self) -> None:
+        stable, pending = split_stable(self._buffer, self._committed)
+        if stable:
+            self._stop_live()
+            self._print_stable(stable)
+            self._committed += len(stable)
+        self._pending = pending
+        if pending or self._activity:
+            self._start_live()
+            self._refresh_live()
+        else:
+            self._stop_live()
+
+    def _flush_stream(self) -> None:
+        if not self.interactive:
+            return
+        remainder = self._buffer[self._committed :]
+        if remainder:
+            self._stop_live()
+            self._print_stable(remainder)
+            self._committed = len(self._buffer)
+        self._pending = ""
+        self._stop_live()
+
+    def _print_stable(self, text: str) -> None:
+        if not text:
+            return
+        self._finish_line()
+        # avoid a blank Rich line when the segment is only newlines
+        if text.strip():
+            self.console.print(render_markdown(text))
+        elif text.endswith("\n"):
+            self.console.print()
+        self._line_open = False
+        self._flush()
+
+    def _renderable(self) -> Group | Text:
+        # Live stays one/two lines only — never full code panels (overflow = black bars)
+        status = self._activity or ("…" if self._pending else None)
+        face_line = (
+            Text(f"{self.mascot.face} {status}", style=ACCENT)
+            if status
+            else Text(f"{self.mascot.face} …", style=ACCENT)
+        )
+        if self._pending and not self._activity:
+            preview = render_partial(self._pending)
+            return Group(preview, face_line)
+        return face_line
 
     def _start_live(self) -> None:
-        if not self.interactive or self._live:
+        if not self.interactive or self._live or not self.console.is_terminal:
             return
         self._live = Live(
             self._renderable(),
             console=self.console,
-            refresh_per_second=12,
+            refresh_per_second=16,
             transient=True,
+            vertical_overflow="crop",
         )
         self._live.start()
 

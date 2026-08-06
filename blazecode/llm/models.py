@@ -26,7 +26,11 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "gemini-2.5-pro": 1_048_576,
     "gemini-2.5-flash": 1_048_576,
     "gemini-2.0-flash": 1_048_576,
-    "deepseek": 64_000,
+    "deepseek-chat": 128_000,
+    "deepseek-reasoner": 128_000,
+    "deepseek": 128_000,
+    "kimi": 128_000,
+    "minimax": 128_000,
     "glm-4.7": 200_000,
     "glm-4.6": 200_000,
     "glm-4.5": 128_000,
@@ -52,6 +56,7 @@ class ProviderPreset:
 # ordered onboarding presets; Custom must stay last
 PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
     ProviderPreset("OpenAI", "openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
+    ProviderPreset("Anthropic", "anthropic", env_var="ANTHROPIC_API_KEY"),
     ProviderPreset(
         "Google",
         "google",
@@ -62,10 +67,9 @@ PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
     ProviderPreset("Groq", "groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
     ProviderPreset("Z.ai", "zai", "https://api.z.ai/api/paas/v4", "ZAI_API_KEY"),
     ProviderPreset("Kimi", "kimi", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
-    ProviderPreset("Ollama", "ollama", "http://localhost:11434/v1", key_policy=KeyPolicy.NONE),
     ProviderPreset("DeepSeek", "deepseek", "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
     ProviderPreset("MiniMax", "minimax", "https://api.minimaxi.com/v1", "MINIMAX_API_KEY"),
-    ProviderPreset("Anthropic Proxy", "anthropic-proxy", env_var="ANTHROPIC_API_KEY"),
+    ProviderPreset("Ollama", "ollama", "http://localhost:11434/v1", key_policy=KeyPolicy.NONE),
     ProviderPreset("Custom (OpenAI-compatible)", "", key_policy=KeyPolicy.PROMPT, ask_models=True),
 )
 

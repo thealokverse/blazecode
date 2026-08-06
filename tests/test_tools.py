@@ -66,6 +66,20 @@ async def test_bash_reports_timeout_and_exit_code(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_bash_streams_output_chunks(tmp_path: Path) -> None:
+    bash = build_registry()["bash"]
+    chunks: list[str] = []
+    result = await bash.run(
+        {"command": "printf 'one\\ntwo\\n'"},
+        tmp_path,
+        on_output=chunks.append,
+    )
+    assert not result.is_error
+    assert "".join(chunks) == "one\ntwo\n"
+    assert result.content == "one\ntwo"
+
+
+@pytest.mark.asyncio
 async def test_bash_cancel_kills_subprocess(tmp_path: Path) -> None:
     import asyncio
     import os

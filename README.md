@@ -29,7 +29,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 |--------|---------|
 | Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash` |
 | Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash -s -- --uninstall` |
-| Pin version | `curl -fsSL ... \| bash -s -- --version v1.2.0` |
+| Pin version | `curl -fsSL ... \| bash -s -- --version v1.2.1` |
 
 Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
 
@@ -53,14 +53,15 @@ blazecode -p "Explain this repo"   # one-shot prompt
 blazecode --version
 ```
 
-First launch walks you through a provider (OpenAI, Google, OpenRouter, Groq, Z.ai, Kimi, Ollama, or custom) and writes `~/.blazecode/config.json`.
+First launch walks you through a provider (OpenAI, Anthropic, Google, OpenRouter, Groq, Z.ai, Kimi, DeepSeek, MiniMax, Ollama, or custom) and writes `~/.blazecode/config.json`.
 
 ---
 
 ## Features
 
-- **Streaming** responses with a live status mascot
-- **Five tools**: `read`, `write`, `edit`, `bash`, `grep`
+- **Streaming** responses with live markdown, syntax-highlighted code, and diffs
+- **Multiline input**: enter to send, shift+enter for a new line
+- **Five tools**: `read`, `write`, `edit`, `bash`, `grep` (bash streams live output)
 - **Providers**: OpenAI-compatible endpoints with curated text/code model selection
 - **Approvals**: `/approval on|off` for shell command confirmation
 - **Sessions**: append-only JSONL under `~/.blazecode/sessions`

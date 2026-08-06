@@ -39,6 +39,23 @@ def test_empty_assistant_stop_includes_content_key() -> None:
     assert payload == {"role": "assistant", "content": ""}
 
 
+def test_api_payload_strips_local_token_accounting() -> None:
+    payload = Message(
+        role="assistant",
+        content="ok",
+        input_tokens=1200,
+        output_tokens=40,
+    ).to_dict(api=True)
+    assert payload == {"role": "assistant", "content": "ok"}
+    stored = Message(
+        role="assistant",
+        content="ok",
+        input_tokens=1200,
+        output_tokens=40,
+    ).to_dict(api=False)
+    assert stored["input_tokens"] == 1200
+
+
 def test_tool_call_message_uses_resolved_name() -> None:
     serialized = tool_call_message(ToolCallStart("1", "shell", {"command": "true"}))
     assert serialized["function"]["name"] == "bash"

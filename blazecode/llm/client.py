@@ -68,8 +68,7 @@ def _headers(
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    lowered = base_url.lower()
-    if "openrouter.ai" in lowered:
+    if "openrouter.ai" in base_url.lower():
         headers["HTTP-Referer"] = "https://github.com/thealokverse/blazecode"
         headers["X-Title"] = "Blazecode"
     return headers
@@ -165,9 +164,7 @@ def _merge_name(existing: str, incoming: str) -> str:
         return incoming
     if incoming.startswith(existing):
         return incoming
-    if existing.startswith(incoming):
-        return existing
-    if incoming == existing:
+    if existing.startswith(incoming) or incoming == existing:
         return existing
     return existing + incoming
 
@@ -259,7 +256,6 @@ async def list_models(
 def _models_url(base_url: str) -> str:
     url = f"{base_url.rstrip('/')}/models"
     if "openrouter.ai" in base_url.lower():
-        # Let OpenRouter exclude non-text and non-tool-capable models server-side.
         return f"{url}?output_modalities=text&supported_parameters=tools&sort=most-popular"
     return url
 
@@ -275,19 +271,11 @@ async def stream_completion(
     max_retries: int = _MAX_RETRIES,
 ) -> AsyncIterator[Event]:
     payload = _build_payload(model, messages, tools)
-    owned = False
-    if client is None:
-        session = await _get_shared_client()
-    else:
-        session = client
-    try:
-        async for event in _stream_with_retries(
-            session, base_url, api_key, payload, max_retries=max_retries
-        ):
-            yield event
-    finally:
-        if owned:
-            await session.aclose()
+    session = client or await _get_shared_client()
+    async for event in _stream_with_retries(
+        session, base_url, api_key, payload, max_retries=max_retries
+    ):
+        yield event
 
 
 async def _stream_with_retries(
@@ -344,8 +332,6 @@ async def _stream_with_retries(
                         continue
                     data = stripped[5:].strip()
                     if not data or data == "[DONE]":
-                        if data == "[DONE]":
-                            break
                         continue
                     try:
                         chunk = json.loads(data)

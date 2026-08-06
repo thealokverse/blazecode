@@ -9,7 +9,7 @@ from blazecode.llm.client import ToolCallStart
 from blazecode.mascot import State
 from blazecode.permissions.approval import ApprovalManager
 from blazecode.tools import TOOLS
-from blazecode.tools.base import Tool, ToolResult
+from blazecode.tools.base import OutputCallback, Tool, ToolResult
 
 _ALIASES = {
     "read": "read",
@@ -64,6 +64,7 @@ async def execute_tool(
     call: ToolCallStart,
     cwd: Path,
     approval: ApprovalManager,
+    on_output: OutputCallback | None = None,
 ) -> ToolResult:
     if call.arguments.get("_parse_error"):
         return ToolResult(
@@ -78,7 +79,7 @@ async def execute_tool(
     if not approved:
         return ToolResult(f"Error: {reason}", is_error=True)
     try:
-        return await tool.run(call.arguments, cwd)
+        return await tool.run(call.arguments, cwd, on_output=on_output)
     except asyncio.CancelledError:
         raise
     except Exception as exc:

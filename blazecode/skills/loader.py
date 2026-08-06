@@ -125,14 +125,18 @@ class SkillLoader:
 
     def add(self, source: Path) -> Skill:
         source = source.expanduser().resolve()
+        if not source.exists():
+            raise FileNotFoundError(f"skill source not found: {source}")
         if source.is_file():
             if source.suffix.lower() != ".md":
                 raise ValueError("skill files must use the .md extension")
             skill_file = source
-        else:
+        elif source.is_dir():
             skill_file = source / "SKILL.md"
             if not skill_file.is_file():
-                raise ValueError(f"{source} must be a Markdown file or contain SKILL.md")
+                raise ValueError(f"{source} must contain SKILL.md")
+        else:
+            raise ValueError(f"{source} must be a Markdown file or skill directory")
         name, _ = _metadata(skill_file)
         if not _valid_skill_name(name):
             raise ValueError(

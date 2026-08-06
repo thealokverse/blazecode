@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from blazecode.tools.base import Tool, ToolResult, error_result, resolve_path
+from blazecode.tools.base import OutputCallback, Tool, ToolResult, error_result, resolve_path
 
 _DIFF_CHAR_LIMIT = 200_000
 
@@ -22,7 +22,13 @@ class WriteTool(Tool):
         "additionalProperties": False,
     }
 
-    async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        cwd: Path,
+        *,
+        on_output: OutputCallback | None = None,
+    ) -> ToolResult:
         from difflib import unified_diff
 
         try:

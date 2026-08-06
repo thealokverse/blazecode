@@ -121,10 +121,10 @@ def test_proxy_preset_prompts_url_and_uses_env_key(
 
     choice = [
         preset.name for preset in onboarding.PROVIDER_PRESETS
-    ].index("anthropic-proxy") + 1
+    ].index("anthropic") + 1
     provider = onboarding._collect_provider(choice, console)
 
-    assert provider.name == "anthropic-proxy"
+    assert provider.name == "anthropic"
     assert provider.base_url == "https://my-proxy.example/v1"
     assert provider.api_key == "env:ANTHROPIC_API_KEY"
 

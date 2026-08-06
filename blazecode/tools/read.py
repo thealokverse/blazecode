@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from blazecode.tools.base import Tool, ToolResult, error_result, resolve_path
+from blazecode.tools.base import OutputCallback, Tool, ToolResult, error_result, resolve_path
 
 
 class ReadTool(Tool):
@@ -31,7 +31,13 @@ class ReadTool(Tool):
         "additionalProperties": False,
     }
 
-    async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        cwd: Path,
+        *,
+        on_output: OutputCallback | None = None,
+    ) -> ToolResult:
         try:
             path = resolve_path(cwd, str(arguments["path"]))
             if not path.is_file():

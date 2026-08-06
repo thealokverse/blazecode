@@ -15,6 +15,8 @@ class Observer(Protocol):
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None: ...
 
+    def on_tool_output(self, name: str, chunk: str) -> None: ...
+
     def on_tool_result(self, name: str, result: ToolResult) -> None: ...
 
     def on_error(self, message: str) -> None: ...
@@ -33,6 +35,9 @@ class NullObserver:
         pass
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
+        pass
+
+    def on_tool_output(self, name: str, chunk: str) -> None:
         pass
 
     def on_tool_result(self, name: str, result: ToolResult) -> None:

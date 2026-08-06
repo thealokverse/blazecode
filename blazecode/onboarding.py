@@ -141,9 +141,17 @@ def _collect_provider(choice: int, console: Console) -> Provider:
         raise ValueError(f"unknown provider choice: {choice}")
     preset = PROVIDER_PRESETS[choice - 1]
     name = preset.name or Prompt.ask("  Provider name", console=console).strip()
-    base_url = preset.base_url or Prompt.ask(
-        "  OpenAI-compatible base URL", console=console
-    ).strip()
+    if preset.base_url:
+        base_url = preset.base_url
+    elif preset.name == "anthropic":
+        base_url = Prompt.ask(
+            "  OpenAI-compatible Anthropic base URL",
+            console=console,
+        ).strip()
+    else:
+        base_url = Prompt.ask(
+            "  OpenAI-compatible base URL", console=console
+        ).strip()
     api_key = _collect_api_key(preset, console)
     models: list[str] = []
     if preset.ask_models:
@@ -153,7 +161,7 @@ def _collect_provider(choice: int, console: Console) -> Provider:
             console=console,
         )
         models = [item.strip() for item in model_text.split(",") if item.strip()]
-    return Provider(name, base_url, api_key, models)
+    return Provider(name, base_url.rstrip("/"), api_key, models)
 
 
 def _collect_api_key(preset: ProviderPreset, console: Console) -> str:

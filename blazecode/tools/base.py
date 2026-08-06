@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+# optional live stdout/stderr hook used by long-running tools
+OutputCallback = Callable[[str], None]
 
 
 @dataclass(slots=True)
@@ -31,7 +35,13 @@ class Tool(ABC):
         }
 
     @abstractmethod
-    async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        cwd: Path,
+        *,
+        on_output: OutputCallback | None = None,
+    ) -> ToolResult:
         ...
 
 

@@ -161,7 +161,7 @@ class AgentLoop:
         provider: Provider,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
-    ) -> tuple[str, list[ToolCallStart], str | None, int | None, int| None,]:
+    ) -> tuple[str, list[ToolCallStart], str | None, int | None, int | None]:
         # drain one completion into text, tool calls, and optional error
         text_parts: list[str] = []
         calls: list[ToolCallStart] = []
@@ -185,8 +185,13 @@ class AgentLoop:
                     return "".join(text_parts), calls, event.message, None, None
                 elif isinstance(event, Done):
                     usage = event.usage
-                    return "".join(text_parts), calls, None, usage.get("prompt_tokens"), usage.get("completion_tokens")
-                    continue
+                    return (
+                        "".join(text_parts),
+                        calls,
+                        None,
+                        usage.get("prompt_tokens"),
+                        usage.get("completion_tokens"),
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -197,13 +202,17 @@ class AgentLoop:
         # approve, execute, notify ui, and append the tool result message
         resolved = resolve_tool_name(call.name)
         tool = TOOLS.get(resolved) if resolved else None
+        label = tool.name if tool is not None else (resolved or call.name)
         if tool is not None and not call.arguments.get("_parse_error"):
             self._state(tool_state(tool))
             self.observer.on_tool_call(tool.name, call.arguments)
-        result = await execute_tool(call, self.cwd, self.approval)
+
+        def on_output(chunk: str) -> None:
+            self.observer.on_tool_output(label, chunk)
+
+        result = await execute_tool(call, self.cwd, self.approval, on_output=on_output)
         if result.is_error:
             self._state(State.DEBUGGING)
-        label = tool.name if tool is not None else (resolved or call.name)
         self.observer.on_tool_result(label, result)
         self._append(Message(role="tool", content=result.content,
                              tool_call_id=call.call_id, name=label))

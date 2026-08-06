@@ -23,6 +23,9 @@ class Message:
         value = asdict(self)
         if api:
             value.pop("created_at", None)
+            # local accounting only; never send to providers
+            value.pop("input_tokens", None)
+            value.pop("output_tokens", None)
             # providers reject assistant/user/tool messages with a missing content key
             if value.get("content") is None:
                 value["content"] = ""

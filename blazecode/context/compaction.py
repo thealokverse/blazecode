@@ -9,16 +9,26 @@ from blazecode.session.message import Message
 def estimate_tokens(messages: Sequence[Message]) -> int:
     if not messages:
         return 0
-    total_token_usage = sum((message.input_tokens or 0) + (message.output_tokens or 0) for message in messages)
-    if total_token_usage > 0 and len(messages) > 1:
-        return total_token_usage
+    # last provider-reported prompt size is the best live signal
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.input_tokens:
+            later = messages[index + 1 :]
+            return (
+                int(message.input_tokens)
+                + int(message.output_tokens or 0)
+                + (_char_tokens(later) if later else 0)
+            )
+    return _char_tokens(messages)
+
+
+def _char_tokens(messages: Sequence[Message]) -> int:
     characters = 0
     for message in messages:
         characters += 8  # role / framing overhead
         if message.content:
             characters += len(message.content)
         if message.tool_calls:
-            # rough size of tool call payloads without a full dump
             try:
                 characters += len(json.dumps(message.tool_calls, ensure_ascii=False))
             except (TypeError, ValueError):
@@ -27,7 +37,7 @@ def estimate_tokens(messages: Sequence[Message]) -> int:
             characters += len(message.tool_call_id)
         if message.name:
             characters += len(message.name)
-    return max(1, (characters + 3) // 4)
+    return max(1, (characters + 3) // 4) if messages else 0
 
 
 def compact_messages(
@@ -41,33 +51,39 @@ def compact_messages(
 
     system = next((message for message in values if message.role == "system"), None)
     body = [message for message in values if message is not system]
+    if not body:
+        return [system] if system else []
+
+    # pin the latest user turn and as much trailing context as fits
     current_user = max(
         (index for index, message in enumerate(body) if message.role == "user"),
-        default=max(0, len(body) - 1),
+        default=len(body) - 1,
     )
     start = min(current_user, max(0, len(body) - recent_messages))
     keep = body[start:]
 
-    # shrink from the left; re estimate only the kept window
-    while keep and estimate_tokens(([system] if system else []) + keep) > max_tokens:
+    while len(keep) > 1 and estimate_tokens(([system] if system else []) + keep) > max_tokens:
+        # never drop the current user turn or anything after it
         if start >= current_user:
             break
         keep.pop(0)
         start += 1
 
     keep = _drop_orphans(keep)
-    if start > 0 and body[:start]:
-        note = Message(
-            role="system",
-            content=(
-                f"[context compacted: omitted {start} earlier messages; "
-                "critical decisions and the current task are preserved]"
-            ),
+    head: list[Message] = [system] if system else []
+    if start > 0:
+        omitted = start
+        # one-line recovery hint so the model knows history was trimmed
+        head.append(
+            Message(
+                role="system",
+                content=(
+                    f"[context compacted: omitted {omitted} earlier messages; "
+                    "retain goals, decisions, and the active task from what remains]"
+                ),
+            )
         )
-        if system is not None:
-            return [system, note, *keep]
-        return [note, *keep]
-    return ([system] if system else []) + keep
+    return head + keep
 
 
 def _drop_orphans(messages: list[Message]) -> list[Message]:
@@ -107,6 +123,8 @@ def _drop_orphans(messages: list[Message]) -> list[Message]:
                 tool_call_id=message.tool_call_id,
                 name=message.name,
                 created_at=message.created_at,
+                input_tokens=message.input_tokens,
+                output_tokens=message.output_tokens,
             )
         elif message.content:
             repaired[assistant_index] = Message(
@@ -116,6 +134,8 @@ def _drop_orphans(messages: list[Message]) -> list[Message]:
                 tool_call_id=message.tool_call_id,
                 name=message.name,
                 created_at=message.created_at,
+                input_tokens=message.input_tokens,
+                output_tokens=message.output_tokens,
             )
         else:
             repaired.pop(assistant_index)
@@ -138,7 +158,6 @@ def _drop_orphans(messages: list[Message]) -> list[Message]:
             if pending_ids and call_id and call_id not in pending_ids:
                 continue
             if not pending_ids and call_id:
-                # no assistant parent in window
                 continue
             repaired.append(message)
             if call_id:

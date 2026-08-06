@@ -18,18 +18,32 @@ from blazecode.llm.models import (
 
 def test_provider_preset_order() -> None:
     names = [preset.name for preset in PROVIDER_PRESETS]
+    labels = [preset.label for preset in PROVIDER_PRESETS]
     assert names == [
         "openai",
+        "anthropic",
         "google",
         "openrouter",
         "groq",
         "zai",
         "kimi",
-        "ollama",
         "deepseek",
         "minimax",
-        "anthropic-proxy",
+        "ollama",
         "",
+    ]
+    assert labels == [
+        "OpenAI",
+        "Anthropic",
+        "Google",
+        "OpenRouter",
+        "Groq",
+        "Z.ai",
+        "Kimi",
+        "DeepSeek",
+        "MiniMax",
+        "Ollama",
+        "Custom (OpenAI-compatible)",
     ]
 
 

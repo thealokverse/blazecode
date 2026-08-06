@@ -6,7 +6,7 @@ import signal
 from pathlib import Path
 from typing import Any
 
-from blazecode.tools.base import Tool, ToolResult, error_result
+from blazecode.tools.base import OutputCallback, Tool, ToolResult, error_result
 
 
 class BashTool(Tool):
@@ -32,7 +32,13 @@ class BashTool(Tool):
         "additionalProperties": False,
     }
 
-    async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        cwd: Path,
+        *,
+        on_output: OutputCallback | None = None,
+    ) -> ToolResult:
         process: asyncio.subprocess.Process | None = None
         try:
             command = arguments["command"]
@@ -50,7 +56,7 @@ class BashTool(Tool):
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout
+                    _drain(process, on_output), timeout
                 )
             except TimeoutError:
                 await _kill_process(process)
@@ -79,6 +85,32 @@ class BashTool(Tool):
         finally:
             if process is not None and process.returncode is None:
                 await _kill_process(process)
+
+
+async def _drain(
+    process: asyncio.subprocess.Process,
+    on_output: OutputCallback | None,
+) -> tuple[bytes, bytes]:
+    stdout_parts: list[bytes] = []
+    stderr_parts: list[bytes] = []
+
+    async def read(stream: asyncio.StreamReader | None, parts: list[bytes]) -> None:
+        if stream is None:
+            return
+        while True:
+            chunk = await stream.read(4096)
+            if not chunk:
+                break
+            parts.append(chunk)
+            if on_output is not None:
+                on_output(chunk.decode("utf-8", errors="replace"))
+
+    await asyncio.gather(
+        read(process.stdout, stdout_parts),
+        read(process.stderr, stderr_parts),
+        process.wait(),
+    )
+    return b"".join(stdout_parts), b"".join(stderr_parts)
 
 
 async def _kill_process(process: asyncio.subprocess.Process) -> None:

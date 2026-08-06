@@ -6,6 +6,7 @@ from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import DummyHistory, FileHistory
+from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.prompt import IntPrompt
 
@@ -31,6 +32,9 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
         completer=slash_completer(),
         complete_while_typing=complete_slash_commands_while_typing,
         complete_in_thread=True,
+        multiline=True,
+        key_bindings=_input_bindings(),
+        prompt_continuation=lambda width, _line, _wrap: " " * max(width, 0),
     )
     approval_session: PromptSession[str] = PromptSession(history=DummyHistory())
     approval = ApprovalManager(
@@ -75,6 +79,42 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
                 pass
             console.print("Interrupted.", style="yellow")
             blaze.set_state(State.IDLE)
+
+
+_SHIFT_ENTER_READY = False
+
+
+def _input_bindings() -> KeyBindings:
+    # enter sends · shift+enter newline · ctrl+c cancels (default)
+    _enable_shift_enter()
+    bindings = KeyBindings()
+
+    @bindings.add("enter", eager=True)
+    def _send(event: Any) -> None:
+        event.current_buffer.validate_and_handle()
+
+    @bindings.add("f24", eager=True)
+    def _newline(event: Any) -> None:
+        event.current_buffer.insert_text("\n")
+
+    return bindings
+
+
+def _enable_shift_enter() -> None:
+    # prompt_toolkit has no s-enter; map common terminal sequences to f24
+    global _SHIFT_ENTER_READY
+    if _SHIFT_ENTER_READY:
+        return
+    from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+    from prompt_toolkit.keys import Keys
+
+    for sequence in (
+        "\x1b[13;2u",  # kitty / foot / wezterm
+        "\x1b[27;2;13~",  # xterm modifyOtherKeys
+        "\x1b[13;2~",
+    ):
+        ANSI_SEQUENCES[sequence] = Keys.F24
+    _SHIFT_ENTER_READY = True
 
 
 async def _command(

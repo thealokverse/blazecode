@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from blazecode.tools.base import Tool, ToolResult, error_result, resolve_path
+from blazecode.tools.base import OutputCallback, Tool, ToolResult, error_result, resolve_path
 
 _SKIP_DIRS = frozenset(
     {
@@ -65,7 +65,13 @@ class GrepTool(Tool):
         "additionalProperties": False,
     }
 
-    async def run(self, arguments: dict[str, Any], cwd: Path) -> ToolResult:
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        cwd: Path,
+        *,
+        on_output: OutputCallback | None = None,
+    ) -> ToolResult:
         try:
             regex = re.compile(str(arguments["pattern"]))
             target = resolve_path(cwd, str(arguments.get("path", ".")))

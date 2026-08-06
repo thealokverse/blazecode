@@ -53,3 +53,27 @@ def test_compaction_strips_unanswered_tool_calls() -> None:
     compacted = compact_messages(messages, max_tokens=10_000)
     assistant = next(m for m in compacted if m.role == "assistant")
     assert [c["id"] for c in assistant.tool_calls] == ["1"]
+
+
+def test_estimate_tokens_uses_latest_prompt_usage_not_sum() -> None:
+    messages = [
+        Message("user", "a"),
+        Message("assistant", "b", input_tokens=1000, output_tokens=10),
+        Message("user", "c"),
+        Message("assistant", "d", input_tokens=1200, output_tokens=20),
+    ]
+    # must not sum both input_tokens (1000+1200); latest prompt wins
+    assert estimate_tokens(messages) == 1220
+    assert estimate_tokens(messages) < 2000
+
+
+def test_compaction_inserts_note_when_history_is_trimmed() -> None:
+    system = Message("system", "sys")
+    history = [Message("user", f"old {index} " + "y" * 100) for index in range(12)]
+    history.append(Message("user", "current task"))
+    compacted = compact_messages([system, *history], max_tokens=60, recent_messages=4)
+    assert compacted[0] is system
+    notes = [m for m in compacted if m.role == "system" and m is not system]
+    assert notes
+    assert "compacted" in (notes[0].content or "")
+    assert compacted[-1].content == "current task"
