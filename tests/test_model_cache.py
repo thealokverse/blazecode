@@ -17,7 +17,7 @@ from blazecode.llm.models import (
 
 
 def test_provider_preset_order() -> None:
-    names = [item[1] for item in PROVIDER_PRESETS]
+    names = [preset.name for preset in PROVIDER_PRESETS]
     assert names == [
         "openai",
         "google",
@@ -26,7 +26,19 @@ def test_provider_preset_order() -> None:
         "zai",
         "kimi",
         "ollama",
+        "deepseek",
+        "minimax",
+        "anthropic-proxy",
+        "",
     ]
+
+
+def test_provider_presets_are_well_formed() -> None:
+    names = [preset.name for preset in PROVIDER_PRESETS]
+    assert len(names) == len(set(names))
+    for preset in PROVIDER_PRESETS:
+        if preset.base_url:
+            assert preset.base_url.startswith(("http://", "https://"))
 
 
 def test_normalize_and_rank_models() -> None:
