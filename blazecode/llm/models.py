@@ -14,28 +14,31 @@ DEFAULT_CONTEXT_WINDOW = 128_000
 MODEL_CACHE_TTL_SECONDS = 3600
 MODEL_SELECTION_LIMIT = 6
 
+# substring keys; longer keys win via length-sorted match in context_window()
 CONTEXT_WINDOWS: dict[str, int] = {
+    "gpt-5": 400_000,
     "gpt-4.1": 1_047_576,
-    "gpt-4.1-mini": 1_047_576,
-    "gpt-4o": 128_000,
-    "gpt-4o-mini": 128_000,
     "o4-mini": 200_000,
     "o3": 200_000,
-    "claude-sonnet-4": 200_000,
     "claude-opus-4": 200_000,
-    "gemini-2.5-pro": 1_048_576,
-    "gemini-2.5-flash": 1_048_576,
-    "gemini-2.0-flash": 1_048_576,
-    "deepseek-chat": 128_000,
-    "deepseek-reasoner": 128_000,
-    "deepseek": 128_000,
-    "kimi": 128_000,
-    "minimax": 128_000,
+    "claude-sonnet-4": 200_000,
+    "claude": 200_000,
+    "gemini-2.5": 1_048_576,
+    "gemini-2.0": 1_048_576,
+    "gemini-3": 1_048_576,
+    "gemini": 1_048_576,
     "glm-4.7": 200_000,
     "glm-4.6": 200_000,
     "glm-4.5": 128_000,
     "glm-4": 128_000,
+    "deepseek": 128_000,
+    "kimi": 128_000,
+    "moonshot": 128_000,
+    "minimax": 128_000,
+    "qwen": 128_000,
+    "grok": 128_000,
 }
+
 
 class KeyPolicy(Enum):
     NONE = "none"  # local provider, no key (ollama)
@@ -47,13 +50,13 @@ class KeyPolicy(Enum):
 class ProviderPreset:
     label: str
     name: str
-    base_url: str | None = None  # None => prompt the user at onboarding
+    base_url: str | None = None  # None => prompt at onboarding
     env_var: str | None = None
     key_policy: KeyPolicy = KeyPolicy.ENV
     ask_models: bool = False  # prompt for model ids (custom)
 
 
-# ordered onboarding presets; Custom must stay last
+# onboarding order; Custom stays last
 PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
     ProviderPreset("OpenAI", "openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
     ProviderPreset("Anthropic", "anthropic", env_var="ANTHROPIC_API_KEY"),
@@ -63,24 +66,100 @@ PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
         "https://generativelanguage.googleapis.com/v1beta/openai",
         "GEMINI_API_KEY",
     ),
-    ProviderPreset("OpenRouter", "openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    ProviderPreset(
+        "OpenRouter", "openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"
+    ),
     ProviderPreset("Groq", "groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
     ProviderPreset("Z.ai", "zai", "https://api.z.ai/api/paas/v4", "ZAI_API_KEY"),
     ProviderPreset("Kimi", "kimi", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
-    ProviderPreset("DeepSeek", "deepseek", "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
-    ProviderPreset("MiniMax", "minimax", "https://api.minimaxi.com/v1", "MINIMAX_API_KEY"),
-    ProviderPreset("Ollama", "ollama", "http://localhost:11434/v1", key_policy=KeyPolicy.NONE),
-    ProviderPreset("Custom (OpenAI-compatible)", "", key_policy=KeyPolicy.PROMPT, ask_models=True),
+    ProviderPreset(
+        "DeepSeek", "deepseek", "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"
+    ),
+    ProviderPreset(
+        "MiniMax", "minimax", "https://api.minimaxi.com/v1", "MINIMAX_API_KEY"
+    ),
+    ProviderPreset(
+        "Ollama", "ollama", "http://localhost:11434/v1", key_policy=KeyPolicy.NONE
+    ),
+    ProviderPreset(
+        "Custom (OpenAI-compatible)", "", key_policy=KeyPolicy.PROMPT, ask_models=True
+    ),
+)
+
+# lower rank = better for agent work
+_RANK_BOOSTS: tuple[tuple[str, int], ...] = (
+    ("codex", -40),
+    ("coder", -35),
+    ("code", -20),
+    ("gpt-5", -24),
+    ("claude-opus-4", -22),
+    ("claude-sonnet-4", -20),
+    ("gemini-3", -20),
+    ("gemini-2.5", -16),
+    ("grok-4", -16),
+    ("glm-4.7", -16),
+    ("kimi-k2", -15),
+    ("deepseek-r1", -14),
+    ("deepseek-v3", -14),
+    ("qwen3", -14),
+    ("opus", -8),
+    ("sonnet", -7),
+    ("pro", -5),
+    ("flash", 3),
+    ("mini", 6),
+    ("nano", 8),
+)
+
+_IRRELEVANT = (
+    "audio",
+    "dall-e",
+    "embedding",
+    "image",
+    "moderation",
+    "music",
+    "realtime",
+    "rerank",
+    "speech",
+    "sora",
+    "transcri",
+    "tts",
+    "veo",
+    "video",
+    "voice",
+    "whisper",
+)
+
+# drop stale chat models from large catalogs (self-hosted keeps them via fallback)
+_DEPRECATED = (
+    "-alpha",
+    "-beta",
+    "babbage",
+    "chatgpt-",
+    "claude-1",
+    "claude-2",
+    "claude-3-",
+    "code-davinci",
+    "curie",
+    "davinci",
+    "deprecated",
+    "gemini-1",
+    "gpt-3",
+    "gpt-4",
+    "legacy",
+    "palm",
+    "preview",
+    "retired",
 )
 
 
 def context_window(model: str) -> int:
-    if model in CONTEXT_WINDOWS:
-        return CONTEXT_WINDOWS[model]
     lowered = model.lower()
-    for key, value in CONTEXT_WINDOWS.items():
+    if lowered in CONTEXT_WINDOWS:
+        return CONTEXT_WINDOWS[lowered]
+    # longest substring first so glm-4.7 beats glm-4
+    for key in sorted(CONTEXT_WINDOWS, key=len, reverse=True):
         if key in lowered:
-            return value
+            return CONTEXT_WINDOWS[key]
     return DEFAULT_CONTEXT_WINDOW
 
 
@@ -89,7 +168,9 @@ def _cache_path(base_url: str) -> Path:
     return config_home() / "cache" / f"models_{safe}.json"
 
 
-def load_cached_models(base_url: str, *, ttl: int = MODEL_CACHE_TTL_SECONDS) -> list[str] | None:
+def load_cached_models(
+    base_url: str, *, ttl: int = MODEL_CACHE_TTL_SECONDS
+) -> list[str] | None:
     path = _cache_path(base_url)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -116,12 +197,16 @@ def save_cached_models(base_url: str, models: list[str]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary = path.with_suffix(".tmp")
-        payload: dict[str, Any] = {
-            "fetched_at": time.time(),
-            "base_url": base_url,
-            "models": models,
-        }
-        temporary.write_text(json.dumps(payload), encoding="utf-8")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "fetched_at": time.time(),
+                    "base_url": base_url,
+                    "models": models,
+                }
+            ),
+            encoding="utf-8",
+        )
         temporary.replace(path)
         path.chmod(0o600)
     except OSError:
@@ -136,21 +221,20 @@ def normalize_model_ids(raw: Any) -> list[str]:
         data = data.get("data", [])
     if not isinstance(data, list):
         return []
-    models: list[str] = []
+    found: list[str] = []
     for item in data:
         if isinstance(item, str) and item.strip():
-            models.append(item.strip())
+            found.append(item.strip())
             continue
         if not isinstance(item, dict):
             continue
         identifier = item.get("id") or item.get("name") or item.get("model")
         if identifier:
-            models.append(str(identifier))
-    return sorted(set(models))
+            found.append(str(identifier))
+    return sorted(set(found))
 
 
 def rank_models(models: list[str], *, prefer: str | None = None) -> list[str]:
-    # stable sort that surfaces current agent-friendly models
     prefer_l = (prefer or "").lower()
 
     def score(model: str) -> tuple[int, tuple[int, ...], str]:
@@ -158,27 +242,7 @@ def rank_models(models: list[str], *, prefer: str | None = None) -> list[str]:
         rank = 50
         if prefer_l and prefer_l in lowered:
             rank -= 40
-        for token, weight in (
-            ("codex", -40),
-            ("coder", -35),
-            ("code", -20),
-            ("gpt-5", -24),
-            ("claude-opus-4", -22),
-            ("claude-sonnet-4", -20),
-            ("gemini-3", -20),
-            ("gemini-2.5", -16),
-            ("grok-4", -16),
-            ("glm-4.7", -16),
-            ("kimi-k2", -15),
-            ("deepseek-r1", -14),
-            ("deepseek-v3", -14),
-            ("qwen3", -14),
-            ("opus", -8),
-            ("sonnet", -7),
-            ("pro", -5),
-            ("flash", 3),
-            ("mini", 6),
-        ):
+        for token, weight in _RANK_BOOSTS:
             if token in lowered:
                 rank += weight
         versions = tuple(-int(value) for value in re.findall(r"\d+", lowered))
@@ -187,64 +251,18 @@ def rank_models(models: list[str], *, prefer: str | None = None) -> list[str]:
     return sorted(models, key=score)
 
 
-_IRRELEVANT_MODEL_TOKENS = (
-    "audio",
-    "dall-e",
-    "embedding",
-    "image",
-    "moderation",
-    "music",
-    "realtime",
-    "rerank",
-    "speech",
-    "sora",
-    "transcri",
-    "tts",
-    "veo",
-    "video",
-    "voice",
-    "whisper",
-)
-
-_DEPRECATED_MODEL_TOKENS = (
-    "-alpha",
-    "-beta",
-    "babbage",
-    "chatgpt-",
-    "claude-1",
-    "claude-2",
-    "claude-3-",
-    "code-davinci",
-    "curie",
-    "davinci",
-    "deprecated",
-    "gemini-1",
-    "gpt-3",
-    "gpt-4",
-    "legacy",
-    "palm",
-    "preview",
-    "retired",
-)
-
-
 def select_models(models: list[str], *, limit: int = MODEL_SELECTION_LIMIT) -> list[str]:
-    """Return a compact, current list suitable for an agent model picker."""
+    """Compact, current list for the agent model picker."""
     unique = list(dict.fromkeys(model.strip() for model in models if model.strip()))
-    relevant = [
-        model
-        for model in unique
-        if not any(token in model.lower() for token in _IRRELEVANT_MODEL_TOKENS)
-    ]
-    current = [
-        model
-        for model in relevant
-        if not any(token in model.lower() for token in _DEPRECATED_MODEL_TOKENS)
-    ]
-    # A small or self-hosted provider may expose only an older, still usable LLM.
-    # Do not turn that into an onboarding dead end.
-    selected = current or relevant
-    ranked = rank_models(selected)
-    if ranked and all("glm-" in model.lower() for model in ranked):
+    relevant = [m for m in unique if not _has_token(m, _IRRELEVANT)]
+    current = [m for m in relevant if not _has_token(m, _DEPRECATED)]
+    # small/self-hosted catalogs may only expose older still-usable models
+    ranked = rank_models(current or relevant)
+    if ranked and all("glm-" in m.lower() for m in ranked):
         return ranked
-    return ranked[:limit] if len(ranked) > limit else ranked
+    return ranked[:limit]
+
+
+def _has_token(model: str, tokens: tuple[str, ...]) -> bool:
+    lowered = model.lower()
+    return any(token in lowered for token in tokens)
