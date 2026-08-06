@@ -98,7 +98,7 @@ class AgentLoop:
                 # each iteration is one model round trip
                 self._state(State.THINKING)
                 self.observer.on_response_start()
-                text, calls, error = await self._collect_stream(
+                text, calls, error, input_tokens, output_tokens = await self._collect_stream(
                     self.settings.provider(), self._api_messages(extra_skills), self._tool_defs
                 )
                 final_text = text or final_text
@@ -106,13 +106,14 @@ class AgentLoop:
                 if error:
                     # keep partial assistant text so history stays coherent
                     if text:
-                        self._append(Message(role="assistant", content=text))
+                        self._append(Message(role="assistant", content=text, input_tokens=input_tokens, output_tokens=output_tokens))
                     state = State.IDLE if error == "interrupted" else State.ERROR
                     return self._finish(final_text, error, state)
 
                 # always record the assistant message before running tools
                 self._append(
                     Message(role="assistant", content=text or None,
+                            input_tokens=input_tokens, output_tokens=output_tokens,
                             tool_calls=[tool_call_message(c) for c in calls])
                 )
 
@@ -160,7 +161,7 @@ class AgentLoop:
         provider: Provider,
         messages: Sequence[dict[str, Any]],
         tools: Sequence[dict[str, Any]],
-    ) -> tuple[str, list[ToolCallStart], str | None]:
+    ) -> tuple[str, list[ToolCallStart], str | None, int | None, int| None,]:
         # drain one completion into text, tool calls, and optional error
         text_parts: list[str] = []
         calls: list[ToolCallStart] = []
@@ -173,7 +174,7 @@ class AgentLoop:
                 tools,
             ):
                 if self._cancel:
-                    return "".join(text_parts), calls, "interrupted"
+                    return "".join(text_parts), calls, "interrupted", None, None
                 if isinstance(event, TextDelta):
                     text_parts.append(event.text)
                     self.observer.on_text(event.text)
@@ -181,14 +182,16 @@ class AgentLoop:
                     # full call already assembled by the stream client
                     calls.append(event)
                 elif isinstance(event, Error):
-                    return "".join(text_parts), calls, event.message
+                    return "".join(text_parts), calls, event.message, None, None
                 elif isinstance(event, Done):
+                    usage = event.usage
+                    return "".join(text_parts), calls, None, usage.get("prompt_tokens"), usage.get("completion_tokens")
                     continue
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            return "".join(text_parts), calls, f"provider failure: {exc}"
-        return "".join(text_parts), calls, None
+            return "".join(text_parts), calls, f"provider failure: {exc}", None, None
+        return "".join(text_parts), calls, None, None, None
 
     async def _run_tool(self, call: ToolCallStart) -> None:
         # approve, execute, notify ui, and append the tool result message

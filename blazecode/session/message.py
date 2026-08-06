@@ -12,6 +12,9 @@ class Message:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_call_id: str | None = None
     name: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
     created_at: str = field(
         default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds")
     )
@@ -38,4 +41,6 @@ class Message:
             tool_call_id=value.get("tool_call_id"),
             name=value.get("name"),
             created_at=str(value.get("created_at") or datetime.now(UTC).isoformat()),
+            input_tokens=value.get("input_tokens"),
+            output_tokens=value.get("output_tokens")
         )
