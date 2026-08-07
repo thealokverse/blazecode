@@ -33,17 +33,20 @@ def _version(value: bool) -> None:
 
 
 async def _run(
-    settings: Settings, prompt: str | None, console: Console
+    settings: Settings,
+    prompt: str | None,
+    console: Console,
+    store: SessionStore | None = None,
 ) -> None:
+    store = store or SessionStore()
     if prompt is None:
-        await run_repl(settings)
+        await run_repl(settings, store=store)
         return
-    # headless (-p): approval on without a callback denies shell commands
     renderer = Renderer(console, interactive=False)
     agent = AgentLoop(
         settings,
         Path.cwd().resolve(),
-        SessionStore(),
+        store,
         ApprovalManager(settings.approval_mode),
         renderer,
     )
@@ -56,16 +59,32 @@ def main(
         str | None,
         typer.Option("-p", help="Run one prompt non-interactively."),
     ] = None,
+    resume: Annotated[
+        bool,
+        typer.Option("--resume", help="Resume the latest session."),
+    ] = False,
     version: Annotated[
         bool,
         typer.Option("--version", callback=_version, is_eager=True),
     ] = False,
 ) -> None:
     del version
-    console = Console(force_terminal=sys.stdout.isatty())
+    is_tty = sys.stdout.isatty()
+    console = Console(force_terminal=is_tty)
+
+    resolved_store: SessionStore | None = None
+    if resume:
+        raw_store = SessionStore()
+        sessions = raw_store.list_sessions()
+        if not sessions:
+            console.print("No saved sessions.", style="red")
+            raise typer.Exit(2)
+        raw_store.resume(sessions[0].session_id)
+        resolved_store = raw_store
+
     try:
         settings = run_onboarding(console=console) if needs_onboarding() else Settings.load()
-        asyncio.run(_run(settings, prompt, console))
+        asyncio.run(_run(settings, prompt, console, store=resolved_store))
     except (FileNotFoundError, ValueError, TypeError, KeyError) as exc:
         console.print(f"Configuration error: {exc}", style="red")
         raise typer.Exit(2) from exc

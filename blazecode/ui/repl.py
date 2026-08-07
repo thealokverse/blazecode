@@ -18,14 +18,17 @@ from blazecode.onboarding import switch_or_add_provider
 from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
 from blazecode.session.store import SessionStore
 from blazecode.ui.completer import complete_slash_commands_while_typing, slash_completer
+from blazecode.ui.markdown import render_markdown
 from blazecode.ui.render import Renderer, render_header
 
 
-async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
+async def run_repl(
+    settings: Settings, cwd: Path | None = None, store: SessionStore | None = None
+) -> None:
     working = (cwd or Path.cwd()).resolve()
     console = Console()
     renderer = Renderer(console)
-    store = SessionStore()
+    store = store or SessionStore()
     history_path = config_home() / "history"
     session: PromptSession[str] = PromptSession(
         history=FileHistory(str(history_path)),
@@ -43,6 +46,12 @@ async def run_repl(settings: Settings, cwd: Path | None = None) -> None:
     )
     agent = AgentLoop(settings, working, store, approval, renderer)
     render_header(console, settings.default_model, working)
+    if store.path.exists() and agent.messages:
+        console.print(
+            f"Resumed {store.session_id} ({len(agent.messages)} messages)",
+            style="dim",
+        )
+        _render_resumed_history(console, agent.messages)
     while True:
         blaze.set_state(State.IDLE)
         try:
@@ -132,6 +141,7 @@ async def _command(
         return True, settings
     if command == "/status":
         console.print(
+            f"Session: {store.session_id}\n"
             f"Provider: {settings.default_provider}\n"
             f"Model: {settings.default_model}\n"
             f"Approval: {settings.approval_mode}\n"
@@ -252,3 +262,30 @@ def _interactive_approver(
         return answer.strip().lower() in {"y", "yes"}
 
     return approve
+
+
+def _render_resumed_history(console: Console, messages: list[Message]) -> None:
+    from rich.text import Text
+    for message in messages:
+        if message.role == "user" and message.content:
+            console.print()
+            try:
+                prompt_text = Text()
+                prompt_text.append(f"blaze {blaze.face} ❯ ", style="bold cyan")
+                prompt_text.append(message.content)
+                console.print(prompt_text)
+            except Exception:
+                console._buffer.clear()
+                print(f"blaze > {message.content.encode('ascii', 'replace').decode('ascii')}")
+        elif message.role == "assistant" and message.content:
+            console.print()
+            try:
+                console.print(render_markdown(message.content))
+            except Exception:
+                console._buffer.clear()
+                print(message.content.encode("ascii", "replace").decode("ascii"))
+
+
+
+
+
