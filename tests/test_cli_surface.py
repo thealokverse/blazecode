@@ -41,10 +41,12 @@ def test_short_prompt_flag_runs_headless(tmp_path: Path, monkeypatch: pytest.Mon
         "model",
         providers=[Provider("test", "https://example.test/v1", "none", ["model"])],
     )
-    received: list[tuple[Settings, str | None]] = []
+    received: list[tuple[Settings, str | None, object]] = []
 
-    async def fake_run(value: Settings, prompt: str | None, console: object) -> None:
-        received.append((value, prompt))
+    async def fake_run(
+        value: Settings, prompt: str | None, console: object, store: object = None
+    ) -> None:
+        received.append((value, prompt, store))
 
     monkeypatch.setattr(cli, "needs_onboarding", lambda: False)
     monkeypatch.setattr(cli.Settings, "load", lambda: settings)
@@ -52,4 +54,22 @@ def test_short_prompt_flag_runs_headless(tmp_path: Path, monkeypatch: pytest.Mon
     result = CliRunner().invoke(cli.app, ["-p", "Say hello"])
 
     assert result.exit_code == 0
-    assert received == [(settings, "Say hello")]
+    assert len(received) == 1
+    assert received[0][0] == settings
+    assert received[0][1] == "Say hello"
+
+
+def test_resume_missing_session_exits_two(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
+    monkeypatch.setattr(cli, "needs_onboarding", lambda: False)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.app, ["--resume"])
+
+    assert result.exit_code == 2
+    assert "No saved sessions" in result.stdout
+    sessions_dir = tmp_path / "sessions"
+    if sessions_dir.exists():
+        assert list(sessions_dir.glob("*.jsonl")) == []
+
+

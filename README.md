@@ -49,6 +49,7 @@ uv tool install git+https://github.com/thealokverse/blazecode.git
 
 ```bash
 blazecode                          # interactive REPL (onboarding on first run)
+blazecode --resume                 # resume the most recent session directly
 blazecode -p "Explain this repo"   # one-shot prompt
 blazecode --version
 ```
@@ -64,7 +65,7 @@ First launch walks you through a provider (OpenAI, Anthropic, Google, OpenRouter
 - **Five tools**: `read`, `write`, `edit`, `bash`, `grep` (bash streams live output)
 - **Providers**: OpenAI-compatible endpoints with curated text/code model selection
 - **Approvals**: `/approval on|off` for shell command confirmation
-- **Sessions**: append-only JSONL under `~/.blazecode/sessions`
+- **Sessions**: append-only JSONL under `~/.blazecode/sessions`; resume latest via `blazecode --resume`
 - **Skills**: optional Markdown instructions, loaded when relevant
 - **Compaction**: keeps context lean on long chats
 
