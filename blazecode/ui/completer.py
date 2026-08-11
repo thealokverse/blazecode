@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from prompt_toolkit.completion import Completer, Completion, CompleteEvent, FuzzyWordCompleter
+from prompt_toolkit.application.current import get_app
+from prompt_toolkit.completion import (
+    CompleteEvent,
+    Completer,
+    Completion,
+    FuzzyWordCompleter,
+)
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.application.current import get_app
 
 COMMANDS: dict[str, str] = {
-    "/status": "Show provider, model, approval mode, tokens, and Blaze state",
-    "/approval": "Shell approval: /approval on|off",
+    "/status": "Show provider, model, approval, tokens, and Blaze state",
+    "/approval": "Autonomy: /approval on (confirm every tool) | off (auto)",
     "/provider": "Add or switch provider",
     "/models": "List or switch models",
-    "/skills": "List skills; /skills add <file.md or directory> installs one",
     "/export": "Export this session to Markdown",
     "/clear": "Start a fresh session",
     "/resume": "Resume a saved session",

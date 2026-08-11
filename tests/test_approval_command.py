@@ -28,57 +28,67 @@ def test_approval_on_off_and_status(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     updated = repl._set_approval(settings, "on", console)
     assert updated.approval_mode == "on"
+    assert "confirm" in stream.getvalue().lower()
     updated = repl._set_approval(updated, "off", console)
     assert updated.approval_mode == "off"
+    assert "without prompts" in stream.getvalue() or "autonomous" in stream.getvalue().lower()
     repl._set_approval(updated, "", console)
     assert "Approval:" in stream.getvalue()
 
 
-def test_legacy_approval_modes_normalize_on_load(
+def test_legacy_approval_modes_migrate_to_v3(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
     path = tmp_path / "config.json"
-    for legacy, expected in (("ask", "on"), ("auto", "off"), ("plan", "on")):
+    # v1 and v3 share meanings: on=confirm, off=autonomous
+    # v2 flipped meanings: on=autonomous, off=confirm
+    cases = (
+        ("on", 1, "on"),
+        ("off", 1, "off"),
+        ("ask", 1, "on"),
+        ("auto", 1, "off"),
+        ("plan", 1, "on"),
+        ("on", 2, "off"),
+        ("off", 2, "on"),
+    )
+    for legacy, semantics, expected in cases:
         Settings(
             "p",
             "m",
             "on",
             [Provider("p", "https://example.test/v1", "none", ["m"])],
         ).save(path)
-        raw = path.read_text(encoding="utf-8").replace('"on"', f'"{legacy}"', 1)
-        path.write_text(raw, encoding="utf-8")
+        raw = path.read_text(encoding="utf-8")
+        import json
+
+        data = json.loads(raw)
+        data["approval_mode"] = legacy
+        data["approval_semantics"] = semantics
+        path.write_text(json.dumps(data), encoding="utf-8")
         loaded = Settings.load(path)
-        assert loaded.approval_mode == expected
+        assert loaded.approval_mode == expected, f"{legacy} -> {loaded.approval_mode}"
+        assert loaded.approval_semantics == 3
 
 
 @pytest.mark.asyncio
-async def test_async_approval_callback_is_awaited() -> None:
-    asked: list[tuple[str, dict[str, Any]]] = []
+async def test_approval_on_prompts_all_tools() -> None:
+    asked: list[str] = []
 
     async def approve(name: str, arguments: dict[str, Any]) -> bool:
-        asked.append((name, arguments))
+        asked.append(name)
         return True
 
     manager = ApprovalManager("on", approve)
-    allowed, reason = await manager.approve_async(
-        TOOLS["bash"], {"command": "echo ok"}
-    )
-    assert allowed
-    assert reason == ""
-    assert asked == [("bash", {"command": "echo ok"})]
-
-    # file edits never prompt
-    asked.clear()
-    allowed, reason = await manager.approve_async(
-        TOOLS["write"], {"path": "out.txt", "content": "ok"}
-    )
-    assert allowed
-    assert asked == []
+    for tool_name in ("read", "write", "edit", "grep", "bash", "todo"):
+        allowed, reason = await manager.approve_async(TOOLS[tool_name], {})
+        assert allowed
+        assert reason == ""
+    assert asked == ["read", "write", "edit", "grep", "bash", "todo"]
 
 
 @pytest.mark.asyncio
-async def test_approval_off_skips_prompts() -> None:
+async def test_approval_off_skips_all_prompts() -> None:
     prompted = 0
 
     async def approve(name: str, arguments: dict[str, Any]) -> bool:
@@ -87,8 +97,9 @@ async def test_approval_off_skips_prompts() -> None:
         return False
 
     manager = ApprovalManager("off", approve)
-    allowed, _ = await manager.approve_async(TOOLS["bash"], {"command": "rm -rf /"})
-    assert allowed
+    for tool_name in ("read", "write", "edit", "grep", "bash", "todo"):
+        allowed, _ = await manager.approve_async(TOOLS[tool_name], {})
+        assert allowed
     assert prompted == 0
 
 

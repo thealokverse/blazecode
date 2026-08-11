@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -116,6 +117,36 @@ async def test_openrouter_model_listing_uses_text_tool_filter() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         models = await list_models("https://openrouter.ai/api/v1", "key", client=client)
     assert models == ["openai/gpt-5.2"]
+
+
+@pytest.mark.asyncio
+async def test_stream_drops_tool_choice_when_rejected() -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if "tool_choice" in payload:
+            return httpx.Response(
+                400, json={"error": {"message": "unknown parameter: tool_choice"}}
+            )
+        return httpx.Response(200, text='data: {"choices":[]}\n\ndata: [DONE]\n\n')
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        events = [
+            event
+            async for event in stream_completion(
+                "https://example.test/v1",
+                "secret",
+                "model",
+                [{"role": "user", "content": "hi"}],
+                [{"type": "function", "function": {"name": "read"}}],
+                client=client,
+            )
+        ]
+    assert not any(isinstance(event, Error) for event in events)
+    assert "tool_choice" not in requests[-1]
+    assert "parallel_tool_calls" in requests[-1]
 
 
 def test_settings_secure_save_and_environment_key(

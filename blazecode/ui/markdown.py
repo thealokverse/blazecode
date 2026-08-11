@@ -93,7 +93,7 @@ def render_markdown(text: str) -> RenderableType:
 
 
 def render_partial(text: str) -> RenderableType:
-    """Lightweight trailing preview for the status line — never a full Syntax panel."""
+    # lightweight trailing preview for the status line
     if not text:
         return Text("")
     # one plain line only; avoids Live overflow painting dark code panels

@@ -62,12 +62,15 @@ First launch walks you through a provider (OpenAI, Anthropic, Google, OpenRouter
 
 - **Streaming** responses with live markdown, syntax-highlighted code, and diffs
 - **Multiline input**: enter to send, shift+enter for a new line
-- **Five tools**: `read`, `write`, `edit`, `bash`, `grep` (bash streams live output)
+- **Tools**: `read`, `write`, `edit`, `bash`, `grep`, `todo` (bash streams live output)
 - **Providers**: OpenAI-compatible endpoints with curated text/code model selection
-- **Approvals**: `/approval on|off` for shell command confirmation
+- **Approvals**: `/approval on` to confirm every tool; `/approval off` for autonomous runs
 - **Sessions**: append-only JSONL under `~/.blazecode/sessions`; resume latest via `blazecode --resume`
-- **Skills**: optional Markdown instructions, loaded when relevant
+- **Context**: project files, git state, and `AGENTS.md`
+- **Todos**: multi-step task tracing when the agent needs it
 - **Compaction**: keeps context lean on long chats
+
+Nested selectors (`/models`, `/provider`, `/resume`) cancel with Ctrl+C and return to the prompt. At the main prompt, Ctrl+C exits cleanly.
 
 ---
 
@@ -76,14 +79,14 @@ First launch walks you through a provider (OpenAI, Anthropic, Google, OpenRouter
 ```json
 {
   "default_provider": "openai",
-  "default_model": "gpt-4.1",
+  "default_model": "gpt-5.6",
   "approval_mode": "on",
   "providers": [
     {
       "name": "openai",
       "base_url": "https://api.openai.com/v1",
       "api_key": "env:OPENAI_API_KEY",
-      "models": ["gpt-4.1", "gpt-4.1-mini"]
+      "models": ["gpt-5.6", "gpt-5.6-luna"]
     },
     {
       "name": "ollama",
@@ -99,8 +102,10 @@ Prefer `env:VARIABLE` for API keys. Inline keys are stored with `0600` permissio
 
 | `approval_mode` | Behavior |
 |-----------------|----------|
-| `on` | Confirm before shell (`bash`) commands |
-| `off` | Run all tools without prompts |
+| `on` | Confirm before every tool (default, safe) |
+| `off` | Autonomous: run all tools without prompts |
+
+Existing configs are migrated automatically: v2 `on` (autonomous) becomes `off`; v2 `off` (confirm all) becomes `on`. Older `ask`/`auto`/`plan` values normalize the same way.
 
 ---
 
@@ -111,10 +116,9 @@ Type `/` for fuzzy completion.
 | Command | Purpose |
 |---------|---------|
 | `/status` | Provider, model, approval, tokens, mascot |
-| `/approval on\|off` | Confirm shell commands, or run tools freely |
+| `/approval on\|off` | Confirm every tool, or autonomous mode |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
-| `/skills` | List skills; `/skills add <file.md or directory>` installs one |
 | `/export` | Export session to Markdown |
 | `/clear` | Start a fresh session |
 | `/resume` | Resume a saved session |
@@ -122,7 +126,7 @@ Type `/` for fuzzy completion.
 
 ---
 
-## Tools & skills
+## Tools
 
 | Tool | Role |
 |------|------|
@@ -131,13 +135,11 @@ Type `/` for fuzzy completion.
 | `edit` | Exact string replacement |
 | `bash` | Foreground shell command (timeout) |
 | `grep` | Regex search |
+| `todo` | Session task list for multi-step work |
 
-Paths stay inside the working directory. Shell commands go through the approval gate when approval is on.
+Paths stay inside the working directory. When approval is `on`, every tool asks first.
 
-**Skills** are Markdown instructions in `~/.blazecode/skills/` or `./.blazecode/skills/`. Drop in a file such as `review.md`, or keep using a legacy directory containing `SKILL.md`. Blazecode ships with a Planner example skill. Only names/descriptions enter the base prompt; full instructions load when the task matches.
-
-Project guidance is loaded from `AGENTS.md` in the working directory when present.
-
+Project guidance is loaded from `AGENTS.md` (nearest file up to the git root when present).
 
 ---
 

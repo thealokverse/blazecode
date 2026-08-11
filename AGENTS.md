@@ -5,23 +5,21 @@ Professional lightweight terminal coding agent. Simple, fast, reliable.
 ## Product
 
 - Stream OpenAI compatible chat, run tools, persist sessions locally
-- Five tools only: read, write, edit, bash, grep
-- Approvals: on (confirm bash) / off (no prompts)
-- Skills are optional progressive packs, not a plugin platform
+- Tools: read, write, edit, bash, grep, todo
+- Approvals: on (confirm every tool) / off (autonomous)
 - No MCP, subagents, or IDE integration by design
 
 ## Layout
 
 ```
 blazecode/
-  agent/         loop, prompts, tool glue, observer
+  agent/         loop, prompts, tool glue, observer, todos
   llm/           streaming client and model metadata
-  tools/         read write edit bash grep
+  tools/         read write edit bash grep todo
   ui/            repl, render, completer
   config/        settings json
   session/       messages and jsonl store
   permissions/   approval gate
-  skills/        skill discovery
   context/       token estimate and compaction
 cli.py           typer entry
 onboarding.py    first run provider setup
@@ -34,7 +32,7 @@ mascot.py        status faces
 - Prefer edit over write for existing files
 - Do not add dependencies unless required; pin ranges in pyproject.toml
 - Comments: short lowercase # notes only when non obvious
-- loop.py may grow to 250 lines; keep other modules focused and small
+- loop.py may grow to ~280 lines; keep other modules focused and small
 - Do not break working behavior; run tests before finishing
 
 ## Commands
@@ -52,5 +50,5 @@ User data must never be deleted by install or uninstall scripts.
 
 - Python 3.11+
 - Tests must pass: `python -m pytest -q`
-- Paths stay inside cwd; bash goes through approval when on
+- Paths stay inside cwd; tools go through approval when on
 - Secrets: prefer env:VAR keys; never log or print full keys

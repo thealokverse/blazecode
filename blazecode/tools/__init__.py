@@ -5,11 +5,19 @@ from blazecode.tools.bash import BashTool
 from blazecode.tools.edit import EditTool
 from blazecode.tools.grep import GrepTool
 from blazecode.tools.read import ReadTool
+from blazecode.tools.todo import TodoTool
 from blazecode.tools.write import WriteTool
 
 
 def build_registry() -> dict[str, Tool]:
-    tools: list[Tool] = [ReadTool(), WriteTool(), EditTool(), BashTool(), GrepTool()]
+    tools: list[Tool] = [
+        ReadTool(),
+        WriteTool(),
+        EditTool(),
+        BashTool(),
+        GrepTool(),
+        TodoTool(),
+    ]
     return {tool.name: tool for tool in tools}
 
 

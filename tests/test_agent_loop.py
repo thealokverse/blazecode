@@ -19,6 +19,7 @@ class RecordingObserver(NullObserver):
         self.states: list[State] = []
         self.text = ""
         self.tools: list[str] = []
+        self.errors: list[str] = []
 
     def on_state(self, state: State) -> None:
         self.states.append(state)
@@ -28,6 +29,18 @@ class RecordingObserver(NullObserver):
 
     def on_tool_call(self, name: str, arguments: dict[str, Any]) -> None:
         self.tools.append(name)
+
+    def on_error(self, message: str) -> None:
+        self.errors.append(message)
+
+
+def _settings(mode: str = "on") -> Settings:
+    return Settings(
+        "test",
+        "model",
+        mode,
+        [Provider("test", "https://example.test/v1", "none", ["model"])],
+    )
 
 
 @pytest.mark.asyncio
@@ -51,17 +64,11 @@ async def test_agent_executes_tool_then_returns_final_text(tmp_path: Path) -> No
             yield TextDelta("Completed.")
             yield Done("stop")
 
-    settings = Settings(
-        "test",
-        "model",
-        "off",
-        [Provider("test", "https://example.test/v1", "none", ["model"])],
-    )
     observer = RecordingObserver()
     mascot = Mascot()
     store = SessionStore(directory=tmp_path / "sessions")
     loop = AgentLoop(
-        settings,
+        _settings("off"),
         tmp_path,
         store,
         ApprovalManager("off"),
@@ -84,36 +91,56 @@ async def test_agent_executes_tool_then_returns_final_text(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_approval_on_without_callback_denies_bash(tmp_path: Path) -> None:
+async def test_approval_on_without_callback_denies_all_tools(tmp_path: Path) -> None:
     invocation = 0
 
     async def streamer(*args: Any) -> AsyncIterator[Event]:
         nonlocal invocation
         invocation += 1
         if invocation == 1:
-            yield ToolCallStart("1", "bash", {"command": "touch forbidden"})
+            yield ToolCallStart("1", "read", {"path": "x.txt"})
             yield Done("tool_calls")
         else:
             yield TextDelta("Could not run it.")
             yield Done("stop")
 
-    settings = Settings(
-        "p",
-        "m",
-        "on",
-        [Provider("p", "https://example.test/v1", "none", ["m"])],
-    )
     store = SessionStore(directory=tmp_path / "sessions")
+    (tmp_path / "x.txt").write_text("hi", encoding="utf-8")
     loop = AgentLoop(
-        settings,
+        _settings("on"),
         tmp_path,
         store,
         ApprovalManager("on"),
         streamer=streamer,
     )
-    await loop.run("run it")
-    assert not (tmp_path / "forbidden").exists()
+    await loop.run("read it")
     assert "approval required" in store.load()[2].content
+
+
+@pytest.mark.asyncio
+async def test_approval_off_runs_bash_without_prompt(tmp_path: Path) -> None:
+    invocation = 0
+
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        nonlocal invocation
+        invocation += 1
+        if invocation == 1:
+            yield ToolCallStart("1", "bash", {"command": "touch allowed"})
+            yield Done("tool_calls")
+        else:
+            yield TextDelta("done")
+            yield Done("stop")
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        streamer=streamer,
+    )
+    await loop.run("run it")
+    assert (tmp_path / "allowed").exists()
 
 
 @pytest.mark.asyncio
@@ -123,22 +150,15 @@ async def test_cancel_mid_batch_fills_missing_tool_results(tmp_path: Path) -> No
         yield ToolCallStart("c2", "write", {"path": "b.txt", "content": "b"})
         yield Done("tool_calls")
 
-    settings = Settings(
-        "p",
-        "m",
-        "off",
-        [Provider("p", "https://example.test/v1", "none", ["m"])],
-    )
     store = SessionStore(directory=tmp_path / "sessions")
     loop = AgentLoop(
-        settings,
+        _settings("off"),
         tmp_path,
         store,
         ApprovalManager("off"),
         streamer=streamer,
     )
     loop.request_cancel()
-    # Cancel is checked before each tool; force cancel after first tool via side effect.
     original = loop._run_tool
 
     async def run_once(call: Any) -> None:
@@ -175,15 +195,9 @@ async def test_alias_tool_names_match_in_history(tmp_path: Path) -> None:
             yield TextDelta("ok")
             yield Done("stop")
 
-    settings = Settings(
-        "p",
-        "m",
-        "off",
-        [Provider("p", "https://example.test/v1", "none", ["m"])],
-    )
     store = SessionStore(directory=tmp_path / "sessions")
     loop = AgentLoop(
-        settings,
+        _settings("off"),
         tmp_path,
         store,
         ApprovalManager("off"),
@@ -191,3 +205,140 @@ async def test_alias_tool_names_match_in_history(tmp_path: Path) -> None:
     )
     assert await loop.run("run") == "ok"
 
+
+@pytest.mark.asyncio
+async def test_iteration_limit_stops_agent(tmp_path: Path) -> None:
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        yield ToolCallStart("1", "bash", {"command": "echo loop"})
+        yield Done("tool_calls")
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    observer = RecordingObserver()
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        observer,
+        streamer=streamer,
+        max_iterations=2,
+    )
+    await loop.run("loop forever")
+    assert any("iteration limit" in err for err in observer.errors)
+
+
+@pytest.mark.asyncio
+async def test_repeated_identical_tool_calls_stop(tmp_path: Path) -> None:
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        yield ToolCallStart("1", "bash", {"command": "echo same"})
+        yield Done("tool_calls")
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    observer = RecordingObserver()
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        observer,
+        streamer=streamer,
+        max_iterations=10,
+    )
+    await loop.run("repeat")
+    assert any("repeated" in err for err in observer.errors)
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_is_reported(tmp_path: Path) -> None:
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    observer = RecordingObserver()
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        observer,
+        streamer=streamer,
+    )
+    await loop.run("hi")
+    assert any("provider failure" in err for err in observer.errors)
+
+
+@pytest.mark.asyncio
+async def test_todo_tool_updates_session_list(tmp_path: Path) -> None:
+    calls = 0
+
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            yield ToolCallStart(
+                "1",
+                "todo",
+                {
+                    "action": "replace",
+                    "items": [
+                        {"content": "step one", "status": "in_progress"},
+                        {"content": "step two", "status": "pending"},
+                    ],
+                },
+            )
+            yield Done("tool_calls")
+        else:
+            yield TextDelta("tracked")
+            yield Done("stop")
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        streamer=streamer,
+    )
+    assert await loop.run("multi step") == "tracked"
+    assert len(loop.todos.items) == 2
+    assert "step one" in loop.todos.render()
+
+
+@pytest.mark.asyncio
+async def test_todos_are_scoped_to_each_agent_loop(tmp_path: Path) -> None:
+    async def one_step_todo(content: str) -> AgentLoop:
+        calls = 0
+
+        async def streamer(*args: Any) -> AsyncIterator[Event]:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                yield ToolCallStart(
+                    f"call_{content}",
+                    "todo",
+                    {
+                        "action": "replace",
+                        "items": [{"content": content, "status": "completed"}],
+                    },
+                )
+                yield Done("tool_calls")
+            else:
+                yield TextDelta("done")
+                yield Done("stop")
+
+        loop = AgentLoop(
+            _settings("off"),
+            tmp_path,
+            SessionStore(directory=tmp_path / f"sessions-{content}"),
+            ApprovalManager("off"),
+            streamer=streamer,
+        )
+        await loop.run(content)
+        return loop
+
+    first = await one_step_todo("first")
+    second = await one_step_todo("second")
+
+    assert first.todos.summary() == "1. [completed] first"
+    assert second.todos.summary() == "1. [completed] second"

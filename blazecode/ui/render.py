@@ -152,20 +152,6 @@ class Renderer:
             return
         self.console.print()
 
-    def approve(self, name: str, arguments: dict[str, Any]) -> bool:
-        from rich.prompt import Confirm
-
-        target = _tool_target(name, arguments)
-        self._stop_live()
-        try:
-            return Confirm.ask(
-                f"Run [bold]{target}[/bold]?",
-                default=False,
-                console=self.console,
-            )
-        finally:
-            self._start_live()
-
     def pause_activity(self) -> None:
         self._stop_live()
 
@@ -175,6 +161,16 @@ class Renderer:
     @staticmethod
     def tool_target(name: str, arguments: dict[str, Any]) -> str:
         return _tool_target(name, arguments)
+
+    def on_todos(self, todos: Any) -> None:
+        rendered = getattr(todos, "render", lambda: "")()
+        if not rendered or not self.interactive:
+            return
+        self._flush_stream()
+        self._stop_live()
+        self._finish_line()
+        self.console.print(rendered, style=MUTED)
+        self.console.print()
 
     def _reset_stream(self) -> None:
         self._buffer = ""
@@ -218,7 +214,7 @@ class Renderer:
         self._flush()
 
     def _renderable(self) -> Group | Text:
-        # Live stays one/two lines only — never full code panels (overflow = black bars)
+        # live stays one/two lines only; never full code panels
         status = self._activity or ("…" if self._pending else None)
         face_line = (
             Text(f"{self.mascot.face} {status}", style=ACCENT)
@@ -330,4 +326,5 @@ def _tool_summary(name: str) -> str:
         "write": "Wrote",
         "edit": "Edited",
         "bash": "Ran",
+        "todo": "Todos",
     }.get(name, name.capitalize())

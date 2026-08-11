@@ -9,8 +9,13 @@ from typing import Any
 
 APPROVAL_MODES = {"on", "off"}
 
-# older configs used ask/auto/plan
-_LEGACY_APPROVAL = {"ask": "on", "auto": "off", "plan": "on"}
+# approval_semantics v3: on=confirm every tool, off=autonomous
+# v2: on=autonomous, off=confirm every tool
+# v1 (pre-migration): on=confirm bash, off=autonomous
+APPROVAL_SEMANTICS = 3
+
+# legacy tokens ask/auto/plan always carry v1 meanings
+_LEGACY_APPROVAL_V1 = {"ask": "on", "auto": "off", "plan": "on"}
 
 
 def config_home() -> Path:
@@ -61,10 +66,12 @@ class Provider:
 class Settings:
     default_provider: str
     default_model: str
+    # on = confirm every tool (safe default); off = autonomous
     approval_mode: str = "on"
     providers: list[Provider] = field(default_factory=list)
     context_window: int = 128_000
     compaction_ratio: float = 0.7
+    approval_semantics: int = APPROVAL_SEMANTICS
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Settings":
@@ -79,23 +86,29 @@ class Settings:
             providers = [
                 Provider.from_dict(item) for item in raw.get("providers", [])
             ]
+            semantics = int(raw.get("approval_semantics", 1))
+            approval = str(raw.get("approval_mode", "off"))
+            approval, semantics, migrated = _migrate_approval(approval, semantics)
             settings = cls(
                 default_provider=str(raw.get("default_provider", "")),
                 default_model=str(raw.get("default_model", "")),
-                approval_mode=str(raw.get("approval_mode", "on")),
+                approval_mode=approval,
                 providers=providers,
                 context_window=int(raw.get("context_window", 128_000)),
                 compaction_ratio=float(raw.get("compaction_ratio", 0.7)),
+                approval_semantics=semantics,
             )
             settings.validate()
         except (TypeError, KeyError, ValueError) as exc:
             raise ValueError(f"invalid configuration in {source}: {exc}") from exc
+        if migrated:
+            try:
+                settings.save(source)
+            except OSError:
+                pass
         return settings
 
     def validate(self) -> None:
-        self.approval_mode = _LEGACY_APPROVAL.get(
-            self.approval_mode, self.approval_mode
-        )
         if self.approval_mode not in APPROVAL_MODES:
             raise ValueError(
                 f"approval_mode must be one of {', '.join(sorted(APPROVAL_MODES))}"
@@ -140,6 +153,7 @@ class Settings:
     def save(self, path: Path | None = None) -> Path:
         destination = path or config_path()
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.approval_semantics = APPROVAL_SEMANTICS
         payload = asdict(self)
         temporary = destination.with_suffix(".tmp")
         descriptor = os.open(
@@ -162,3 +176,18 @@ class Settings:
         self.default_provider = provider.name
         self.default_model = model
         self.validate()
+
+
+def _migrate_approval(mode: str, semantics: int) -> tuple[str, int, bool]:
+    # v3 meanings equal v1 meanings: on=confirm, off=autonomous
+    # v2 flipped meanings: on=autonomous, off=confirm
+    # legacy tokens ask/auto/plan always carry v1 meanings
+    if mode in _LEGACY_APPROVAL_V1:
+        mode = _LEGACY_APPROVAL_V1[mode]
+        return mode, APPROVAL_SEMANTICS, True
+    if semantics >= APPROVAL_SEMANTICS:
+        return mode, semantics, False
+    if semantics == 2:
+        # v2 on (autonomous) -> off; v2 off (confirm) -> on
+        mode = "off" if mode == "on" else "on"
+    return mode, APPROVAL_SEMANTICS, True

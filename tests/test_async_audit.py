@@ -58,7 +58,6 @@ def test_command_registry_and_dispatch_cover_all_commands() -> None:
         "/approval",
         "/provider",
         "/models",
-        "/skills",
         "/export",
         "/clear",
         "/resume",
@@ -66,7 +65,14 @@ def test_command_registry_and_dispatch_cover_all_commands() -> None:
     }
     assert set(COMMANDS) == expected
     source = inspect.getsource(repl._command)
-    assert all(f'command == "{command}"' in source for command in expected)
+    assert "/status" in source
+    assert "/approval" in source
+    assert "/provider" in source
+    assert "/models" in source
+    assert "/export" in source
+    assert "/clear" in source
+    assert "/resume" in source
+    assert "/exit" in source
 
 
 def test_async_core_is_ui_neutral_and_event_union_is_complete() -> None:
@@ -87,18 +93,20 @@ def test_async_core_is_ui_neutral_and_event_union_is_complete() -> None:
 
 
 def test_tools_and_approval_boundaries() -> None:
-    assert set(TOOLS) == {"read", "write", "edit", "bash", "grep"}
+    assert set(TOOLS) == {"read", "write", "edit", "bash", "grep", "todo"}
+    # off = autonomous: never prompts
     prompted: list[str] = []
-    manager = ApprovalManager(
-        "on", lambda name, arguments: prompted.append(name) is None
-    )
-    for name in ("read", "grep", "write", "edit"):
-        allowed, _ = manager.approve(TOOLS[name], {})
+    auto = ApprovalManager("off", lambda name, arguments: prompted.append(name) or True)
+    for name in ("read", "grep", "write", "edit", "bash", "todo"):
+        allowed, _ = auto.approve(TOOLS[name], {})
         assert allowed
     assert prompted == []
-    allowed, _ = manager.approve(TOOLS["bash"], {"command": "echo hi"})
-    assert allowed
-    assert prompted == ["bash"]
+    # on = confirm every tool
+    confirm = ApprovalManager("on", lambda name, arguments: prompted.append(name) or True)
+    for name in ("read", "bash", "todo"):
+        allowed, _ = confirm.approve(TOOLS[name], {})
+        assert allowed
+    assert prompted == ["read", "bash", "todo"]
 
 
 def test_mascot_state_transition_is_synchronous() -> None:

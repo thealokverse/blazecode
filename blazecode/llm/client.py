@@ -18,10 +18,6 @@ from blazecode.llm.models import (
 _MAX_RETRIES = 3
 _RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 
-_shared_client: httpx.AsyncClient | None = None
-_shared_lock = asyncio.Lock()
-
-
 @dataclass(frozen=True, slots=True)
 class TextDelta:
     text: str
@@ -199,18 +195,6 @@ def _error_detail(body: str) -> str:
     return str(error)[:500]
 
 
-async def _get_shared_client() -> httpx.AsyncClient:
-    global _shared_client
-    async with _shared_lock:
-        if _shared_client is None or _shared_client.is_closed:
-            _shared_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=20.0, read=300.0, write=60.0, pool=30.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-                follow_redirects=True,
-            )
-        return _shared_client
-
-
 async def list_models(
     base_url: str,
     api_key: str | None,
@@ -271,11 +255,24 @@ async def stream_completion(
     max_retries: int = _MAX_RETRIES,
 ) -> AsyncIterator[Event]:
     payload = _build_payload(model, messages, tools)
-    session = client or await _get_shared_client()
-    async for event in _stream_with_retries(
-        session, base_url, api_key, payload, max_retries=max_retries
-    ):
-        yield event
+    owned = client is None
+    session = client or _stream_client()
+    try:
+        async for event in _stream_with_retries(
+            session, base_url, api_key, payload, max_retries=max_retries
+        ):
+            yield event
+    finally:
+        if owned:
+            await session.aclose()
+
+
+def _stream_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=20.0, read=300.0, write=60.0, pool=30.0),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        follow_redirects=True,
+    )
 
 
 async def _stream_with_retries(
@@ -290,11 +287,14 @@ async def _stream_with_retries(
     headers = _headers(api_key, base_url, stream=True)
     retries = max(1, max_retries)
     drop_parallel = False
+    drop_choice = False
 
     for attempt in range(retries):
         body_payload = dict(payload)
         if drop_parallel:
             body_payload.pop("parallel_tool_calls", None)
+        if drop_choice:
+            body_payload.pop("tool_choice", None)
         calls: dict[int, dict[str, str]] = {}
         finish_reason: str | None = None
         usage: dict[str, int] = {}
@@ -316,9 +316,16 @@ async def _stream_with_retries(
                         drop_parallel = True
                         continue
                     if (
+                        response.status_code in {400, 422}
+                        and "tool_choice" in lower
+                        and "tool_choice" in body_payload
+                        and attempt + 1 < retries
+                    ):
+                        drop_choice = True
+                        continue
+                    if (
                         response.status_code in _RETRYABLE_STATUS
                         and attempt + 1 < retries
-                        and not emitted
                     ):
                         await asyncio.sleep(0.5 * (2**attempt))
                         continue

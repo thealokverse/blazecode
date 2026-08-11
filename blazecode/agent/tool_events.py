@@ -10,6 +10,7 @@ from blazecode.mascot import State
 from blazecode.permissions.approval import ApprovalManager
 from blazecode.tools import TOOLS
 from blazecode.tools.base import OutputCallback, Tool, ToolResult
+from blazecode.tools.todo import TodoTool
 
 _ALIASES = {
     "read": "read",
@@ -17,6 +18,8 @@ _ALIASES = {
     "edit": "edit",
     "bash": "bash",
     "grep": "grep",
+    "todo": "todo",
+    "todos": "todo",
     "shell": "bash",
     "run": "bash",
     "search": "grep",
@@ -57,6 +60,8 @@ def tool_state(tool: Tool) -> State:
         return State.SEARCHING
     if tool.name in {"write", "edit"}:
         return State.EDITING
+    if tool.name == "todo":
+        return State.THINKING
     return State.DEBUGGING
 
 
@@ -65,6 +70,7 @@ async def execute_tool(
     cwd: Path,
     approval: ApprovalManager,
     on_output: OutputCallback | None = None,
+    todo_store: Any | None = None,
 ) -> ToolResult:
     if call.arguments.get("_parse_error"):
         return ToolResult(
@@ -75,6 +81,8 @@ async def execute_tool(
     tool = TOOLS.get(resolved) if resolved else None
     if tool is None:
         return ToolResult(f"Error: unknown tool {call.name!r}", is_error=True)
+    if tool.name == "todo" and todo_store is not None:
+        tool = TodoTool(todo_store)
     approved, reason = await approval.approve_async(tool, call.arguments)
     if not approved:
         return ToolResult(f"Error: {reason}", is_error=True)

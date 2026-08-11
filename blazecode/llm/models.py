@@ -14,49 +14,93 @@ DEFAULT_CONTEXT_WINDOW = 128_000
 MODEL_CACHE_TTL_SECONDS = 3600
 MODEL_SELECTION_LIMIT = 6
 
-# substring keys; longer keys win via length-sorted match in context_window()
-CONTEXT_WINDOWS: dict[str, int] = {
-    "gpt-5": 400_000,
-    "gpt-4.1": 1_047_576,
-    "o4-mini": 200_000,
-    "o3": 200_000,
-    "claude-opus-4": 200_000,
-    "claude-sonnet-4": 200_000,
-    "claude": 200_000,
-    "gemini-2.5": 1_048_576,
-    "gemini-2.0": 1_048_576,
-    "gemini-3": 1_048_576,
-    "gemini": 1_048_576,
-    "glm-4.7": 200_000,
-    "glm-4.6": 200_000,
-    "glm-4.5": 128_000,
-    "glm-4": 128_000,
-    "deepseek": 128_000,
-    "kimi": 128_000,
-    "moonshot": 128_000,
-    "minimax": 128_000,
-    "qwen": 128_000,
-    "grok": 128_000,
-}
+
+@dataclass(frozen=True, slots=True)
+class ModelInfo:
+    # curated metadata used for ranking and context windows
+    id: str
+    provider: str
+    context_window: int = DEFAULT_CONTEXT_WINDOW
+    tools: bool = True
+    reasoning: bool = False
+    vision: bool = False
+    deprecated: bool = False
+
+
+# known models blazecode actually uses for windows/ranking; ids are substrings
+KNOWN_MODELS: tuple[ModelInfo, ...] = (
+    # openai
+    ModelInfo("gpt-5.6-sol", "openai", 1_048_576, reasoning=True, vision=True),
+    ModelInfo("gpt-5.6-terra", "openai", 1_048_576, reasoning=True, vision=True),
+    ModelInfo("gpt-5.6-luna", "openai", 1_048_576, reasoning=True, vision=True),
+    ModelInfo("gpt-5.6", "openai", 1_048_576, reasoning=True, vision=True),
+    ModelInfo("gpt-5.2", "openai", 400_000, reasoning=True, vision=True),
+    ModelInfo("gpt-5", "openai", 400_000, reasoning=True, vision=True),
+    ModelInfo("gpt-4.1", "openai", 1_047_576, vision=True),
+    ModelInfo("o4-mini", "openai", 200_000, reasoning=True),
+    ModelInfo("o3", "openai", 200_000, reasoning=True),
+    # anthropic
+    ModelInfo("claude-fable-5", "anthropic", 1_000_000, reasoning=True, vision=True),
+    ModelInfo("claude-opus-5", "anthropic", 1_000_000, reasoning=True, vision=True),
+    ModelInfo("claude-sonnet-5", "anthropic", 1_000_000, reasoning=True, vision=True),
+    ModelInfo("claude-haiku-4-5", "anthropic", 200_000, reasoning=True, vision=True),
+    ModelInfo("claude-opus-4", "anthropic", 200_000, reasoning=True, vision=True),
+    ModelInfo("claude-sonnet-4", "anthropic", 200_000, reasoning=True, vision=True),
+    ModelInfo("claude", "anthropic", 200_000, vision=True),
+    # google
+    ModelInfo("gemini-3", "google", 1_048_576, vision=True),
+    ModelInfo("gemini-2.5", "google", 1_048_576, vision=True),
+    ModelInfo("gemini-2.0", "google", 1_048_576, vision=True),
+    ModelInfo("gemini", "google", 1_048_576, vision=True),
+    # deepseek
+    ModelInfo("deepseek-v4-pro", "deepseek", 128_000, reasoning=True),
+    ModelInfo("deepseek-v4-flash", "deepseek", 128_000, reasoning=True),
+    ModelInfo("deepseek-r1", "deepseek", 128_000, reasoning=True),
+    ModelInfo("deepseek-v3", "deepseek", 128_000),
+    ModelInfo("deepseek", "deepseek", 128_000),
+    # groq hosted
+    ModelInfo("llama-3.3-70b", "groq", 131_072),
+    ModelInfo("llama-3.1-8b", "groq", 131_072),
+    ModelInfo("gpt-oss-120b", "groq", 131_072, reasoning=True),
+    ModelInfo("gpt-oss-20b", "groq", 131_072, reasoning=True),
+    # others common via openrouter / vendor apis
+    ModelInfo("glm-4.7", "zai", 200_000),
+    ModelInfo("glm-4.6", "zai", 200_000),
+    ModelInfo("glm-4.5", "zai", 128_000),
+    ModelInfo("glm-4", "zai", 128_000),
+    ModelInfo("kimi", "kimi", 128_000),
+    ModelInfo("moonshot", "kimi", 128_000),
+    ModelInfo("minimax", "minimax", 128_000),
+    ModelInfo("qwen", "qwen", 128_000),
+    ModelInfo("grok", "xai", 128_000),
+)
+
+# longest id first for substring match
+_CONTEXT_LOOKUP: tuple[tuple[str, int], ...] = tuple(
+    sorted(
+        ((model.id, model.context_window) for model in KNOWN_MODELS),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    )
+)
 
 
 class KeyPolicy(Enum):
-    NONE = "none"  # local provider, no key (ollama)
-    ENV = "env"  # preferred env var, else prompt once at onboarding
-    PROMPT = "prompt"  # always prompt; blank or env:VAR allowed (custom)
+    NONE = "none"
+    ENV = "env"
+    PROMPT = "prompt"
 
 
 @dataclass(frozen=True, slots=True)
 class ProviderPreset:
     label: str
     name: str
-    base_url: str | None = None  # None => prompt at onboarding
+    base_url: str | None = None
     env_var: str | None = None
     key_policy: KeyPolicy = KeyPolicy.ENV
-    ask_models: bool = False  # prompt for model ids (custom)
+    ask_models: bool = False
 
 
-# onboarding order; Custom stays last
 PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
     ProviderPreset("OpenAI", "openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
     ProviderPreset("Anthropic", "anthropic", env_var="ANTHROPIC_API_KEY"),
@@ -91,16 +135,28 @@ _RANK_BOOSTS: tuple[tuple[str, int], ...] = (
     ("codex", -40),
     ("coder", -35),
     ("code", -20),
-    ("gpt-5", -24),
+    ("gpt-5.6-sol", -30),
+    ("gpt-5.6-terra", -26),
+    ("gpt-5.6", -24),
+    ("gpt-5.2", -23),
+    ("gpt-5", -22),
+    ("claude-fable-5", -28),
+    ("claude-opus-5", -26),
+    ("claude-sonnet-5", -24),
     ("claude-opus-4", -22),
     ("claude-sonnet-4", -20),
+    ("claude-haiku-4-5", -12),
     ("gemini-3", -20),
     ("gemini-2.5", -16),
+    ("deepseek-v4-pro", -18),
+    ("deepseek-v4-flash", -14),
+    ("deepseek-r1", -14),
+    ("deepseek-v3", -14),
+    ("gpt-oss-120b", -15),
+    ("llama-3.3-70b", -12),
     ("grok-4", -16),
     ("glm-4.7", -16),
     ("kimi-k2", -15),
-    ("deepseek-r1", -14),
-    ("deepseek-v3", -14),
     ("qwen3", -14),
     ("opus", -8),
     ("sonnet", -7),
@@ -108,6 +164,7 @@ _RANK_BOOSTS: tuple[tuple[str, int], ...] = (
     ("flash", 3),
     ("mini", 6),
     ("nano", 8),
+    ("luna", 4),
 )
 
 _IRRELEVANT = (
@@ -127,9 +184,10 @@ _IRRELEVANT = (
     "video",
     "voice",
     "whisper",
+    "cyber",
+    "daybreak",
 )
 
-# drop stale chat models from large catalogs (self-hosted keeps them via fallback)
 _DEPRECATED = (
     "-alpha",
     "-beta",
@@ -154,12 +212,9 @@ _DEPRECATED = (
 
 def context_window(model: str) -> int:
     lowered = model.lower()
-    if lowered in CONTEXT_WINDOWS:
-        return CONTEXT_WINDOWS[lowered]
-    # longest substring first so glm-4.7 beats glm-4
-    for key in sorted(CONTEXT_WINDOWS, key=len, reverse=True):
+    for key, window in _CONTEXT_LOOKUP:
         if key in lowered:
-            return CONTEXT_WINDOWS[key]
+            return window
     return DEFAULT_CONTEXT_WINDOW
 
 
@@ -252,11 +307,9 @@ def rank_models(models: list[str], *, prefer: str | None = None) -> list[str]:
 
 
 def select_models(models: list[str], *, limit: int = MODEL_SELECTION_LIMIT) -> list[str]:
-    """Compact, current list for the agent model picker."""
     unique = list(dict.fromkeys(model.strip() for model in models if model.strip()))
     relevant = [m for m in unique if not _has_token(m, _IRRELEVANT)]
     current = [m for m in relevant if not _has_token(m, _DEPRECATED)]
-    # small/self-hosted catalogs may only expose older still-usable models
     ranked = rank_models(current or relevant)
     if ranked and all("glm-" in m.lower() for m in ranked):
         return ranked

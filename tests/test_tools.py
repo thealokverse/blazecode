@@ -10,7 +10,7 @@ from blazecode.tools import build_registry
 @pytest.mark.asyncio
 async def test_all_five_tools_work(tmp_path: Path) -> None:
     tools = build_registry()
-    assert set(tools) == {"read", "write", "edit", "bash", "grep"}
+    assert set(tools) == {"read", "write", "edit", "bash", "grep", "todo"}
 
     written = await tools["write"].run(
         {"path": "src/example.py", "content": "value = 1\n"}, tmp_path

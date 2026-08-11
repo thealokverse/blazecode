@@ -23,6 +23,8 @@ class Observer(Protocol):
 
     def on_complete(self) -> None: ...
 
+    def on_todos(self, todos: Any) -> None: ...
+
 
 class NullObserver:
     def on_response_start(self) -> None:
@@ -47,4 +49,7 @@ class NullObserver:
         pass
 
     def on_complete(self) -> None:
+        pass
+
+    def on_todos(self, todos: Any) -> None:
         pass

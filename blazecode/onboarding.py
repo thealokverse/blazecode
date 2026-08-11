@@ -28,7 +28,7 @@ def verify_provider(base_url: str, api_key: str) -> list[str]:
     headers = (
         {"Authorization": f"Bearer {key}"} if key and key != "none" else {}
     )
-    if "openrouter.ai" in base_url:
+    if "openrouter.ai" in base_url.lower():
         headers["HTTP-Referer"] = "https://github.com/thealokverse/blazecode"
         headers["X-Title"] = "Blazecode"
     try:
@@ -113,7 +113,7 @@ def switch_or_add_provider(
 ) -> Settings:
     output = console or Console()
     for index, provider in enumerate(settings.providers, start=1):
-        marker = " *" if provider.name == settings.default_provider else ""
+        marker = " (current)" if provider.name == settings.default_provider else ""
         output.print(f"  {index}. {provider.name}{marker}")
     add_index = len(settings.providers) + 1
     output.print(f"  {add_index}. Add a provider")

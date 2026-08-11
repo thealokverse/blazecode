@@ -30,4 +30,4 @@ pythonpath = ["."]
 
 [tool.hatch.build.targets.wheel]
 packages = ["blazecode"]
-include = ["blazecode/**/*.py", "blazecode/skills/builtin/*.md"]
+include = ["blazecode/**/*.py"]

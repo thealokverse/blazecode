@@ -79,12 +79,20 @@ def main(
         if not sessions:
             console.print("No saved sessions.", style="red")
             raise typer.Exit(2)
-        raw_store.resume(sessions[0].session_id)
+        try:
+            raw_store.resume(sessions[0].session_id)
+        except (OSError, ValueError) as exc:
+            console.print(f"Could not resume session: {exc}", style="red")
+            raise typer.Exit(2) from exc
         resolved_store = raw_store
 
     try:
         settings = run_onboarding(console=console) if needs_onboarding() else Settings.load()
         asyncio.run(_run(settings, prompt, console, store=resolved_store))
+    except KeyboardInterrupt:
+        console.print()
+        console.print("Interrupted.")
+        raise typer.Exit(130) from None
     except (FileNotFoundError, ValueError, TypeError, KeyError) as exc:
         console.print(f"Configuration error: {exc}", style="red")
         raise typer.Exit(2) from exc

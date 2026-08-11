@@ -16,6 +16,7 @@ from blazecode.context.compaction import estimate_tokens
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
 from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
+from blazecode.session.message import Message
 from blazecode.session.store import SessionStore
 from blazecode.ui.completer import complete_slash_commands_while_typing, slash_completer
 from blazecode.ui.markdown import render_markdown
@@ -60,7 +61,12 @@ async def run_repl(
                     [("class:prompt", f"blaze {blaze.face} ❯ ")],
                 )
             ).strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
+            console.print()
+            console.print("Bye! Catch you later.")
+            return
+        except KeyboardInterrupt:
+            # normal repl: ctrl+c exits cleanly
             console.print()
             console.print("Bye! Catch you later.")
             return
@@ -110,7 +116,6 @@ def _input_bindings() -> KeyBindings:
 
 
 def _enable_shift_enter() -> None:
-    # prompt_toolkit has no s-enter; map common terminal sequences to f24
     global _SHIFT_ENTER_READY
     if _SHIFT_ENTER_READY:
         return
@@ -118,8 +123,8 @@ def _enable_shift_enter() -> None:
     from prompt_toolkit.keys import Keys
 
     for sequence in (
-        "\x1b[13;2u",  # kitty / foot / wezterm
-        "\x1b[27;2;13~",  # xterm modifyOtherKeys
+        "\x1b[13;2u",
+        "\x1b[27;2;13~",
         "\x1b[13;2~",
     ):
         ANSI_SEQUENCES[sequence] = Keys.F24
@@ -148,48 +153,18 @@ async def _command(
             f"Session tokens: {estimate_tokens(agent.messages)}\n"
             f"Blaze: {blaze.state.value} {blaze.face}"
         )
+        todos = agent.todos.render()
+        if todos:
+            console.print(todos)
     elif command == "/approval":
         settings = _set_approval(settings, argument, console)
     elif command == "/provider":
-        settings = await asyncio.to_thread(
-            switch_or_add_provider, settings, console
-        )
+        try:
+            settings = switch_or_add_provider(settings, console)
+        except (EOFError, KeyboardInterrupt):
+            console.print("Back.", style="dim")
     elif command == "/models":
-        provider = settings.provider()
-        for index, model in enumerate(provider.models, start=1):
-            marker = " *" if model == settings.default_model else ""
-            console.print(f"{index}. {model}{marker}")
-        selected = IntPrompt.ask(
-            "Select model",
-            choices=[str(index) for index in range(1, len(provider.models) + 1)],
-            console=console,
-        )
-        settings.default_model = provider.models[selected - 1]
-        settings.save()
-    elif command == "/skills":
-        if argument.startswith("add "):
-            source_text = argument[4:].strip()
-            if not source_text:
-                console.print("Usage: /skills add <file.md or directory>", style="red")
-                return False, settings
-            source = Path(source_text)
-            try:
-                skill = agent.skills.add(source)
-                agent.reload_skills()
-                console.print(f"Added {skill.name}: {skill.description}")
-            except (OSError, ValueError, FileExistsError) as exc:
-                console.print(f"Could not add skill: {exc}", style="red")
-        else:
-            agent.reload_skills()
-            skills = agent.skills.discover()
-            if not skills:
-                console.print("No skills loaded.")
-            else:
-                for skill in sorted(skills.values(), key=lambda item: item.name.lower()):
-                    console.print(f"- {skill.name}: {skill.description}")
-            issues = agent.skills.issues()
-            for issue in issues:
-                console.print(f"Skipped skill: {issue}", style="yellow")
+        settings = _switch_model(settings, console)
     elif command == "/export":
         destination = Path(argument).expanduser() if argument else None
         try:
@@ -202,27 +177,7 @@ async def _command(
         agent.replace_messages([])
         console.print("Started a fresh session.")
     elif command == "/resume":
-        sessions = store.list_sessions()
-        if not sessions:
-            console.print("No saved sessions.")
-        else:
-            for index, item in enumerate(sessions, start=1):
-                console.print(
-                    f"{index}. {item.title} "
-                    f"({item.modified_at:%Y-%m-%d %H:%M}, {item.message_count} messages)"
-                )
-            selected = IntPrompt.ask(
-                "Resume",
-                choices=[str(index) for index in range(1, len(sessions) + 1)],
-                console=console,
-            )
-            try:
-                messages = store.resume(sessions[selected - 1].session_id)
-            except (OSError, ValueError) as exc:
-                console.print(f"Could not resume session: {exc}", style="red")
-            else:
-                agent.replace_messages(messages)
-                console.print(f"Resumed {store.session_id}.")
+        _resume_session(store, agent, console)
     else:
         console.print(f"Unknown command: {command}", style="red")
     return False, settings
@@ -241,10 +196,65 @@ def _set_approval(settings: Settings, argument: str, console: Console) -> Settin
     settings.approval_mode = token
     settings.save()
     if token == "on":
-        console.print("Approval on. shell commands will ask for confirmation.")
+        console.print("Approval on. confirm before every tool.")
     else:
-        console.print("Approval off. tools run without prompts.")
+        console.print("Approval off. tools run without prompts (autonomous).")
     return settings
+
+
+def _pick_index(
+    console: Console, prompt: str, options: list[str], current: str | None = None
+) -> int | None:
+    # prints numbered options; returns a 1-based selection or None when cancelled
+    for index, option in enumerate(options, start=1):
+        marker = " (current)" if option == current else ""
+        console.print(f"{index}. {option}{marker}")
+    try:
+        return IntPrompt.ask(
+            prompt,
+            choices=[str(index) for index in range(1, len(options) + 1)],
+            console=console,
+        )
+    except (EOFError, KeyboardInterrupt):
+        console.print("Back.", style="dim")
+        return None
+
+
+def _switch_model(settings: Settings, console: Console) -> Settings:
+    provider = settings.provider()
+    picked = _pick_index(
+        console, "Select model", provider.models, settings.default_model
+    )
+    if picked is None:
+        return settings
+    settings.default_model = provider.models[picked - 1]
+    settings.save()
+    console.print(f"Model: {settings.default_model}")
+    return settings
+
+
+def _resume_session(
+    store: SessionStore, agent: AgentLoop, console: Console
+) -> None:
+    sessions = store.list_sessions()
+    if not sessions:
+        console.print("No saved sessions.")
+        return
+    labels = [
+        f"{item.title} "
+        f"({item.modified_at:%Y-%m-%d %H:%M}, {item.message_count} messages)"
+        for item in sessions
+    ]
+    picked = _pick_index(console, "Resume", labels)
+    if picked is None:
+        return
+    try:
+        messages = store.resume(sessions[picked - 1].session_id)
+    except (OSError, ValueError) as exc:
+        console.print(f"Could not resume session: {exc}", style="red")
+        return
+    agent.replace_messages(messages)
+    console.print(f"Resumed {store.session_id}.")
 
 
 def _interactive_approver(
@@ -266,6 +276,7 @@ def _interactive_approver(
 
 def _render_resumed_history(console: Console, messages: list[Message]) -> None:
     from rich.text import Text
+
     for message in messages:
         if message.role == "user" and message.content:
             console.print()
@@ -276,7 +287,9 @@ def _render_resumed_history(console: Console, messages: list[Message]) -> None:
                 console.print(prompt_text)
             except Exception:
                 console._buffer.clear()
-                print(f"blaze > {message.content.encode('ascii', 'replace').decode('ascii')}")
+                print(
+                    f"blaze > {message.content.encode('ascii', 'replace').decode('ascii')}"
+                )
         elif message.role == "assistant" and message.content:
             console.print()
             try:
@@ -284,8 +297,3 @@ def _render_resumed_history(console: Console, messages: list[Message]) -> None:
             except Exception:
                 console._buffer.clear()
                 print(message.content.encode("ascii", "replace").decode("ascii"))
-
-
-
-
-

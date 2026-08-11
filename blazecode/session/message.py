@@ -5,6 +5,15 @@ from datetime import UTC, datetime
 from typing import Any
 
 
+def _as_opt_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass(slots=True)
 class Message:
     role: str
@@ -37,13 +46,20 @@ class Message:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Message":
+        content = value.get("content")
+        tool_call_id = value.get("tool_call_id")
+        name = value.get("name")
         return cls(
             role=str(value["role"]),
-            content=value.get("content"),
-            tool_calls=list(value.get("tool_calls", [])),
-            tool_call_id=value.get("tool_call_id"),
-            name=value.get("name"),
+            content=str(content) if content is not None else None,
+            tool_calls=(
+                list(value["tool_calls"])
+                if isinstance(value.get("tool_calls"), list)
+                else []
+            ),
+            tool_call_id=str(tool_call_id) if tool_call_id is not None else None,
+            name=str(name) if name is not None else None,
             created_at=str(value.get("created_at") or datetime.now(UTC).isoformat()),
-            input_tokens=value.get("input_tokens"),
-            output_tokens=value.get("output_tokens")
+            input_tokens=_as_opt_int(value.get("input_tokens")),
+            output_tokens=_as_opt_int(value.get("output_tokens")),
         )
