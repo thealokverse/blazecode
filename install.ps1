@@ -9,7 +9,7 @@
   Never touches ~/.blazecode (config, sessions, skills).
 
 .PARAMETER Version
-  Install a specific release tag (e.g. 1.2.1 or v1.2.1). Default: latest
+  Install a specific release tag (e.g. 1.2.2 or v1.2.2). Default: latest
   release, falling back to the main branch.
 
 .PARAMETER BinDir
@@ -24,7 +24,7 @@
 
 .EXAMPLE
   # pin a version (local file)
-  .\install.ps1 -Version 1.2.1
+  .\install.ps1 -Version 1.2.2
 
 .EXAMPLE
   # uninstall
@@ -62,11 +62,18 @@ if (-not $BinDir)    { $BinDir  = Join-Path $InstallRoot 'bin' }
 $doUninstall = [bool]$Uninstall -or ($env:BLAZECODE_UNINSTALL -match '^(1|true|yes)$')
 
 # --- logging helpers ---
+$script:BcTmp = $null   # tracked so Die can clean the scratch dir (mirrors install.sh trap)
 function Log([string]$msg)        { Write-Host $msg }
 function Note([string]$msg)       { Write-Host "=>" -ForegroundColor Cyan; Write-Host " $msg" }
 function Warn([string]$msg)       { Write-Host "warn: $msg" -ForegroundColor Yellow }
 function Err([string]$msg)        { Write-Host "error: $msg" -ForegroundColor Red }
-function Die([string]$msg)        { Err $msg; exit 1 }
+function Die([string]$msg)        {
+  Err $msg
+  if ($script:BcTmp -and (Test-Path -LiteralPath $script:BcTmp)) {
+    Remove-Item -LiteralPath $script:BcTmp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  exit 1
+}
 
 if ($Help) {
   Log "Blazecode installer (Windows)"
@@ -104,10 +111,13 @@ function Add-UserPath([string]$Dir) {
     return $false
   }
   [Environment]::SetEnvironmentVariable('Path', $new, 'User')
-  if (-not (Test-PathOnUserPath $Dir)) {
-    # reflect in current session too
-    $env:Path = "$Dir;$env:Path"
+  # reflect in current process so blazecode works in this session too
+  $dir = $Dir.TrimEnd('\', '/')
+  $inProcess = $false
+  foreach ($p in ($env:Path -split ';')) {
+    if ($p.TrimEnd('\', '/') -ieq $dir) { $inProcess = $true; break }
   }
+  if (-not $inProcess) { $env:Path = "$Dir;$env:Path" }
   return $true
 }
 
@@ -138,7 +148,8 @@ function Find-Python {
 
   foreach ($t in $tries) {
     $exe = $t.Exe
-    if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
+    # accept an absolute path that exists, or a command found on PATH
+    if (-not ((Test-Path -LiteralPath $exe -ErrorAction SilentlyContinue) -or (Get-Command $exe -ErrorAction SilentlyContinue))) { continue }
     try {
       & $exe @($t.Args) -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>$null | Out-Null
       if ($LASTEXITCODE -eq 0) {
@@ -162,10 +173,16 @@ function Resolve-Version {
 }
 
 function Download-File([string]$Url, [string]$Dest) {
-  try {
-    Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
-  } catch {
-    Die "download failed: $Url`n$_"
+  $attempts = 0
+  while ($attempts -lt 3) {
+    $attempts++
+    try {
+      Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
+      return
+    } catch {
+      if ($attempts -ge 3) { Die "download failed: $Url`n$_" }
+      Start-Sleep -Seconds 1
+    }
   }
 }
 
@@ -235,6 +252,7 @@ function Invoke-Install {
 
   $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("blazecode-install-" + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+  $script:BcTmp = $tmp
   $zipPath = Join-Path $tmp $archive
 
   Note "Downloading source"
@@ -318,7 +336,7 @@ function Invoke-Install {
     Log "    [Environment]::SetEnvironmentVariable('Path', `"$BinDir;`$([Environment]::GetEnvironmentVariable('Path','User'))`", 'User')"
   } elseif ($addedPath) {
     Warn "$BinDir was added to your user PATH."
-    Log "  Open a new terminal for the change to take effect."
+    Log "  Run 'blazecode' now (or open a new terminal)."
   }
 
   Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
