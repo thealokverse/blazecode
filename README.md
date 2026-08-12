@@ -16,7 +16,7 @@ blaze (•‿•) ❯
 
 ## Install
 
-**One-liner** (Linux & macOS):
+### Linux & macOS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh | bash
@@ -32,6 +32,29 @@ Your config and sessions in `~/.blazecode` are never touched.
 | Pin version | `curl -fsSL ... \| bash -s -- --version v1.2.1` |
 
 Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
+
+### Windows
+
+In **PowerShell** (5.1+ or PowerShell 7):
+
+```powershell
+irm https://raw.githubusercontent.com/thealokverse/blazecode/main/install.ps1 | iex
+```
+
+This creates an isolated venv in `%LOCALAPPDATA%\blazecode` and places a `blazecode.cmd` shim
+in `%LOCALAPPDATA%\blazecode\bin`, which is added to your **user PATH**.  
+Your config and sessions in `~/.blazecode` are never touched.
+
+| Action | Command |
+|--------|---------|
+| Update | re-run the `irm ... \| iex` line above |
+| Uninstall (local file) | `.\install.ps1 -Uninstall` |
+| Uninstall (piped) | `$env:BLAZECODE_UNINSTALL = '1'; irm https://raw.githubusercontent.com/thealokverse/blazecode/main/install.ps1 \| iex` |
+| Pin version | `.\install.ps1 -Version 1.2.1` |
+
+Requirements: **Windows 10+**, **Python 3.11+** (`winget install Python.Python.3.12` or from [python.org](https://www.python.org/)). The installer prefers the `py` launcher, then falls back to `python`/`python3`.
+
+> **PATH note:** the shim dir is added to your *user* PATH (no admin rights needed). Open a **new** terminal after install for `blazecode` to be found.
 
 ### Other install methods
 
@@ -155,12 +178,49 @@ python -m blazecode
 
 ## Uninstall notes
 
-`install.sh --uninstall` removes only the program (`~/.local/share/blazecode` and the `blazecode` link).  
-It **does not** delete `~/.blazecode`. To wipe user data:
+`install.sh --uninstall` (Linux/macOS) removes only the program (`~/.local/share/blazecode` and the `blazecode` link).  
+`install.ps1 -Uninstall` (Windows) removes the venv (`%LOCALAPPDATA%\blazecode`), the `blazecode.cmd` shim, and its PATH entry.
+
+Neither installer **ever** deletes `~/.blazecode`. To wipe user data:
 
 ```bash
-rm -rf ~/.blazecode
+rm -rf ~/.blazecode      # Linux/macOS
+Remove-Item -Recurse -Force ~/.blazecode   # Windows PowerShell
 ```
+
+---
+
+## Troubleshooting
+
+**Windows: `blazecode` is not recognized after install.**
+Open a new terminal (PATH changes only apply to new processes). If still missing, check the shim dir is on your user PATH:
+```powershell
+[Environment]::GetEnvironmentVariable('Path','User') -split ';' | Select-String blazecode
+```
+If absent, re-run the installer, or add it manually:
+```powershell
+$dir = "$env:LOCALAPPDATA\blazecode\bin"
+[Environment]::SetEnvironmentVariable('Path', "$dir;$([Environment]::GetEnvironmentVariable('Path','User'))", 'User')
+```
+
+**Windows: `running scripts is disabled on this machine`.**
+The piped `irm | iex` command bypasses execution policy. If you run the local `install.ps1` file, allow it for the current session:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\install.ps1
+```
+
+**Windows: installer reports "Python 3.11+ is required".**
+Install Python 3.11+ (`winget install Python.Python.3.12`) or point the installer at a specific interpreter:
+```powershell
+$env:BLAZECODE_PYTHON = 'C:\Path\to\python.exe'
+irm https://raw.githubusercontent.com/thealokverse/blazecode/main/install.ps1 | iex
+```
+
+**Windows: uninstall could not remove files.**
+Close any running `blazecode` process, editors, or terminals holding the venv, then re-run `.\install.ps1 -Uninstall`. User data in `~/.blazecode` is always preserved.
+
+**Update won't take effect.** Re-run the installer (it atomically swaps the venv aside and reinstalls). A running `blazecode` session keeps using the old process until you restart it.
 
 ---
 

@@ -48,14 +48,15 @@ fi
 printf '%s\n' "$VERSION" > "$OUT_DIR/VERSION"
 cp "$ROOT/install.sh" "$OUT_DIR/install.sh"
 chmod 755 "$OUT_DIR/install.sh"
+cp "$ROOT/install.ps1" "$OUT_DIR/install.ps1"
 
 echo "==> Writing SHA256SUMS"
 (
   cd "$OUT_DIR"
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum blazecode-*.whl install.sh > SHA256SUMS
+    sha256sum blazecode-*.whl install.sh install.ps1 > SHA256SUMS
   else
-    shasum -a 256 blazecode-*.whl install.sh > SHA256SUMS
+    shasum -a 256 blazecode-*.whl install.sh install.ps1 > SHA256SUMS
   fi
 )
 
