@@ -54,7 +54,6 @@ Your config and sessions in `~/.blazecode` are never touched.
 
 Requirements: **Windows 10+**, **Python 3.11+** (`winget install Python.Python.3.12` or from [python.org](https://www.python.org/)). The installer prefers the `py` launcher, then falls back to `python`/`python3`.
 
-> **PATH note:** the shim dir is added to your *user* PATH (no admin rights needed). Open a **new** terminal after install for `blazecode` to be found.
 
 ### Other install methods
 
@@ -187,40 +186,6 @@ Neither installer **ever** deletes `~/.blazecode`. To wipe user data:
 rm -rf ~/.blazecode      # Linux/macOS
 Remove-Item -Recurse -Force ~/.blazecode   # Windows PowerShell
 ```
-
----
-
-## Troubleshooting
-
-**Windows: `blazecode` is not recognized after install.**
-Open a new terminal (PATH changes only apply to new processes). If still missing, check the shim dir is on your user PATH:
-```powershell
-[Environment]::GetEnvironmentVariable('Path','User') -split ';' | Select-String blazecode
-```
-If absent, re-run the installer, or add it manually:
-```powershell
-$dir = "$env:LOCALAPPDATA\blazecode\bin"
-[Environment]::SetEnvironmentVariable('Path', "$dir;$([Environment]::GetEnvironmentVariable('Path','User'))", 'User')
-```
-
-**Windows: `running scripts is disabled on this machine`.**
-The piped `irm | iex` command bypasses execution policy. If you run the local `install.ps1` file, allow it for the current session:
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\install.ps1
-```
-
-**Windows: installer reports "Python 3.11+ is required".**
-Install Python 3.11+ (`winget install Python.Python.3.12`) or point the installer at a specific interpreter:
-```powershell
-$env:BLAZECODE_PYTHON = 'C:\Path\to\python.exe'
-irm https://raw.githubusercontent.com/thealokverse/blazecode/main/install.ps1 | iex
-```
-
-**Windows: uninstall could not remove files.**
-Close any running `blazecode` process, editors, or terminals holding the venv, then re-run `.\install.ps1 -Uninstall`. User data in `~/.blazecode` is always preserved.
-
-**Update won't take effect.** Re-run the installer (it atomically swaps the venv aside and reinstalls). A running `blazecode` session keeps using the old process until you restart it.
 
 ---
 
