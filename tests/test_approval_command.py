@@ -137,10 +137,16 @@ async def test_repl_approver_uses_prompt_toolkit_session_and_denies_interrupt() 
     assert session.prompts == ["Run echo hi? [y/N] "]
     assert (renderer.paused, renderer.resumed) == (1, 1)
 
+    cancelled = repl._interactive_approver(  # type: ignore[arg-type]
+        Session(repl.MenuCancelled()), renderer
+    )
+    assert not await cancelled("bash", {"command": "echo hi"})
+
     interrupted = repl._interactive_approver(  # type: ignore[arg-type]
         Session(KeyboardInterrupt()), renderer
     )
-    assert not await interrupted("bash", {"command": "echo hi"})
+    with pytest.raises(KeyboardInterrupt):
+        await interrupted("bash", {"command": "echo hi"})
 
 
 def test_approval_target_escapes_terminal_controls() -> None:

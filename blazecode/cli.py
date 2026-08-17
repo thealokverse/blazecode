@@ -14,6 +14,7 @@ from blazecode.config.settings import Settings
 from blazecode.onboarding import needs_onboarding, run_onboarding
 from blazecode.permissions.approval import ApprovalManager
 from blazecode.session.store import SessionStore
+from blazecode.ui.interact import MenuCancelled
 from blazecode.ui.render import Renderer
 from blazecode.ui.repl import run_repl
 
@@ -33,11 +34,17 @@ def _version(value: bool) -> None:
 
 
 async def _run(
-    settings: Settings,
+    settings: Settings | None,
     prompt: str | None,
     console: Console,
     store: SessionStore | None = None,
 ) -> None:
+    if settings is None:
+        try:
+            settings = await run_onboarding(console=console)
+        except MenuCancelled:
+            console.print("Setup cancelled.")
+            raise SystemExit(1) from None
     store = store or SessionStore()
     if prompt is None:
         await run_repl(settings, store=store)
@@ -87,7 +94,7 @@ def main(
         resolved_store = raw_store
 
     try:
-        settings = run_onboarding(console=console) if needs_onboarding() else Settings.load()
+        settings = None if needs_onboarding() else Settings.load()
         asyncio.run(_run(settings, prompt, console, store=resolved_store))
     except KeyboardInterrupt:
         console.print()

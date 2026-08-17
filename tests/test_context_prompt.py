@@ -12,8 +12,10 @@ from blazecode.agent.prompts import (
 
 def test_base_prompt_is_professional_and_compact() -> None:
     assert "Blazecode" in BASE_PROMPT
-    assert "understand" in BASE_PROMPT.lower()
+    assert "inspect" in BASE_PROMPT.lower()
     assert "verify" in BASE_PROMPT.lower()
+    assert "current task" in BASE_PROMPT.lower()
+    assert "skill" not in BASE_PROMPT.lower()
     assert len(BASE_PROMPT) < 2000
 
 
@@ -27,6 +29,7 @@ def test_build_system_prompt_includes_markers_and_git(
     assert "Working directory:" in prompt
     assert "pyproject.toml" in prompt or "project files:" in prompt
     assert "Be careful" in prompt
+    assert "available skills" not in prompt
     assert project_markers(tmp_path)
 
 

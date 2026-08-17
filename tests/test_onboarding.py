@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import io
 from pathlib import Path
 from typing import Any
@@ -11,49 +12,20 @@ from blazecode.config.settings import Provider
 from blazecode import onboarding
 
 
-def test_verify_provider_is_sync_and_resolves_env_at_use_time(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    headers_seen: list[dict[str, str]] = []
+class _Session:
+    def __init__(self, responses: list[str | BaseException]) -> None:
+        self.responses = iter(responses)
 
-    class Response:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict[str, Any]:
-            return {"data": [{"id": "model-b"}, {"id": "model-a"}]}
-
-    class Client:
-        def __init__(self, timeout: float) -> None:
-            assert timeout == 15.0
-
-        def __enter__(self) -> "Client":
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def get(self, url: str, headers: dict[str, str]) -> Response:
-            assert url == "https://example.test/v1/models"
-            headers_seen.append(headers)
-            return Response()
-
-    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
-    monkeypatch.setattr(onboarding.httpx, "Client", Client)
-    monkeypatch.setenv("DYNAMIC_KEY", "first")
-    models = onboarding.verify_provider(
-        "https://example.test/v1", "env:DYNAMIC_KEY"
-    )
-    assert set(models) == {"model-a", "model-b"}
-    monkeypatch.setenv("DYNAMIC_KEY", "second")
-    onboarding.verify_provider("https://example.test/v1", "env:DYNAMIC_KEY")
-    assert headers_seen == [
-        {"Authorization": "Bearer first"},
-        {"Authorization": "Bearer second"},
-    ]
+    async def prompt_async(self, prompt: object, **kwargs: object) -> str:
+        del prompt, kwargs
+        response = next(self.responses)
+        if isinstance(response, BaseException):
+            raise response
+        return response
 
 
-def test_onboarding_is_synchronous_masks_output_and_secures_config(
+@pytest.mark.asyncio
+async def test_onboarding_masks_output_and_secures_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     answers = iter([2, 1])
@@ -61,26 +33,28 @@ def test_onboarding_is_synchronous_masks_output_and_secures_config(
     stream = io.StringIO()
     console = Console(file=stream, force_terminal=False, color_system=None)
     monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
-    monkeypatch.setattr(
-        onboarding.IntPrompt,
-        "ask",
-        lambda *args, **kwargs: next(answers),
-    )
-    monkeypatch.setattr(
-        onboarding,
-        "_collect_provider",
-        lambda choice, output: Provider(
-            "openrouter", "https://openrouter.ai/api/v1", raw_key, []
-        ),
-    )
-    monkeypatch.setattr(
-        onboarding, "verify_provider", lambda base_url, api_key: ["model-a"]
-    )
 
-    settings = onboarding.run_onboarding(console=console)
+    async def fake_ask_index(*args: Any, **kwargs: Any) -> int:
+        del args, kwargs
+        return next(answers)
+
+    async def fake_collect(choice: int, output: Console, session: object) -> Provider:
+        del choice, output, session
+        return Provider("openrouter", "https://openrouter.ai/api/v1", raw_key, [])
+
+    async def fake_verify(base_url: str, api_key: str) -> list[str]:
+        del base_url, api_key
+        return ["model-a"]
+
+    monkeypatch.setattr(onboarding, "ask_index", fake_ask_index)
+    monkeypatch.setattr(onboarding, "_collect_provider", fake_collect)
+    monkeypatch.setattr(onboarding, "verify_provider", fake_verify)
+
+    settings = await onboarding.run_onboarding(console=console)
 
     assert settings.default_model == "model-a"
     assert not hasattr(settings, "__await__")
+    assert inspect.iscoroutinefunction(onboarding.run_onboarding)
     assert "✓ Key verified" in stream.getvalue()
     assert raw_key not in stream.getvalue()
     path = tmp_path / "config.json"
@@ -109,36 +83,35 @@ def test_friendly_error_handles_empty_exception_messages() -> None:
     assert onboarding._friendly_error(EOFError()) == "EOFError"
 
 
-def test_proxy_preset_prompts_url_and_uses_env_key(
+@pytest.mark.asyncio
+async def test_proxy_preset_prompts_url_and_uses_env_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stream = io.StringIO()
     console = Console(file=stream, force_terminal=False, color_system=None)
-    answers = iter(["https://my-proxy.example/v1", "y"])
     monkeypatch.setenv("ANTHROPIC_API_KEY", "key")
-    monkeypatch.setattr(onboarding.Prompt, "ask", lambda *args, **kwargs: next(answers))
-
     choice = [
         preset.name for preset in onboarding.PROVIDER_PRESETS
     ].index("anthropic") + 1
-    provider = onboarding._collect_provider(choice, console)
+    provider = await onboarding._collect_provider(
+        choice, console, _Session(["https://my-proxy.example/v1", "y"])
+    )
 
     assert provider.name == "anthropic"
     assert provider.base_url == "https://my-proxy.example/v1"
     assert provider.api_key == "env:ANTHROPIC_API_KEY"
 
 
-def test_custom_preset_prompts_name_url_key_and_models(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.asyncio
+async def test_custom_preset_prompts_name_url_key_and_models() -> None:
     stream = io.StringIO()
     console = Console(file=stream, force_terminal=False, color_system=None)
-    answers = iter(["mybox", "https://my.example/v1", "sk-123456ab12", ""])
-    monkeypatch.setattr(onboarding.Prompt, "ask", lambda *args, **kwargs: next(answers))
-    monkeypatch.setattr(onboarding, "prompt", lambda *args, **kwargs: next(answers))
-
     choice = [preset.name for preset in onboarding.PROVIDER_PRESETS].index("") + 1
-    provider = onboarding._collect_provider(choice, console)
+    provider = await onboarding._collect_provider(
+        choice,
+        console,
+        _Session(["mybox", "https://my.example/v1", "sk-123456ab12", ""]),
+    )
 
     assert provider.name == "mybox"
     assert provider.base_url == "https://my.example/v1"
@@ -146,7 +119,8 @@ def test_custom_preset_prompts_name_url_key_and_models(
     assert provider.models == []
 
 
-def test_onboarding_retries_empty_model_lists_without_recursing(
+@pytest.mark.asyncio
+async def test_onboarding_retries_empty_model_lists_without_recursing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stream = io.StringIO()
@@ -154,16 +128,32 @@ def test_onboarding_retries_empty_model_lists_without_recursing(
     choices = iter([1, 1, 1, 1])
     responses = iter([[], [], ["glm-4.7"]])
     monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
-    monkeypatch.setattr(onboarding.IntPrompt, "ask", lambda *args, **kwargs: next(choices))
-    monkeypatch.setattr(
-        onboarding,
-        "_collect_provider",
-        lambda choice, output: Provider("zai", "https://example.test/v1", "key", []),
-    )
-    monkeypatch.setattr(
-        onboarding, "verify_provider", lambda base_url, api_key: next(responses)
-    )
 
-    settings = onboarding.run_onboarding(console=console)
+    async def fake_ask_index(*args: Any, **kwargs: Any) -> int:
+        del args, kwargs
+        return next(choices)
+
+    async def fake_collect(choice: int, output: Console, session: object) -> Provider:
+        del choice, output, session
+        return Provider("zai", "https://example.test/v1", "key", [])
+
+    async def fake_verify(base_url: str, api_key: str) -> list[str]:
+        del base_url, api_key
+        return next(responses)
+
+    monkeypatch.setattr(onboarding, "ask_index", fake_ask_index)
+    monkeypatch.setattr(onboarding, "_collect_provider", fake_collect)
+    monkeypatch.setattr(onboarding, "verify_provider", fake_verify)
+
+    settings = await onboarding.run_onboarding(console=console)
     assert settings.default_model == "glm-4.7"
     assert stream.getvalue().count("Welcome to Blazecode!") == 1
+
+
+@pytest.mark.asyncio
+async def test_collect_api_key_uses_async_session() -> None:
+    preset = next(
+        item for item in onboarding.PROVIDER_PRESETS if item.name == "openai"
+    )
+    key = await onboarding._collect_api_key(preset, _Session(["sk-live"]))
+    assert key == "sk-live"

@@ -29,7 +29,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 |--------|---------|
 | Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash` |
 | Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash -s -- --uninstall` |
-| Pin version | `curl -fsSL ... \| bash -s -- --version v1.2.2` |
+| Pin version | `curl -fsSL ... \| bash -s -- --version v1.2.3` |
 
 Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
 
@@ -50,7 +50,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 | Update | re-run the `irm ... \| iex` line above |
 | Uninstall (local file) | `.\install.ps1 -Uninstall` |
 | Uninstall (piped) | `$env:BLAZECODE_UNINSTALL = '1'; irm https://raw.githubusercontent.com/thealokverse/blazecode/main/install.ps1 \| iex` |
-| Pin version | `.\install.ps1 -Version 1.2.2` |
+| Pin version | `.\install.ps1 -Version 1.2.3` |
 
 Requirements: **Windows 10+**, **Python 3.11+** (`winget install Python.Python.3.12` or from [python.org](https://www.python.org/)). The installer prefers the `py` launcher, then falls back to `python`/`python3`.
 
@@ -92,7 +92,7 @@ First launch walks you through a provider (OpenAI, Anthropic, Google, OpenRouter
 - **Todos**: multi-step task tracing when the agent needs it
 - **Compaction**: keeps context lean on long chats
 
-Nested selectors (`/models`, `/provider`, `/resume`) cancel with Ctrl+C and return to the prompt. At the main prompt, Ctrl+C exits cleanly.
+Menus (`/models`, `/provider`, `/resume`) use **Esc** to go back. **Ctrl+C** interrupts the current operation or agent run. At the idle prompt, Ctrl+C exits.
 
 ---
 

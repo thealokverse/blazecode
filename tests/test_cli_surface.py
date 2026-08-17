@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import io
 import tomllib
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from blazecode import __version__
 from blazecode import cli
 from blazecode.config.settings import Provider, Settings
 from blazecode.ui import repl
+from blazecode.ui.interact import MenuCancelled
 
 
 class _PromptSession:
@@ -88,6 +92,15 @@ def test_resume_missing_session_exits_two(tmp_path: Path, monkeypatch: pytest.Mo
         assert list(sessions_dir.glob("*.jsonl")) == []
 
 
+def _patch_repl_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+    main: _PromptSession,
+    menu: _PromptSession | None = None,
+) -> None:
+    monkeypatch.setattr(repl, "PromptSession", lambda *args, **kwargs: main)
+    monkeypatch.setattr(repl, "menu_session", lambda: menu or _PromptSession([]))
+
+
 @pytest.mark.asyncio
 async def test_repl_starts_and_runs_nested_model_selection_in_one_loop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -99,15 +112,30 @@ async def test_repl_starts_and_runs_nested_model_selection_in_one_loop(
         providers=[Provider("test", "https://example.test/v1", "none", ["first", "second"])],
     )
     main_session = _PromptSession(["/models", "/exit"])
-    approval_session = _PromptSession([])
-    repl_sessions = iter([main_session, approval_session])
-    monkeypatch.setattr(repl, "PromptSession", lambda *args, **kwargs: next(repl_sessions))
-    choices = iter(["2"])
-    monkeypatch.setattr(repl.IntPrompt, "ask", lambda *args, **kwargs: int(next(choices)))
+    _patch_repl_sessions(monkeypatch, main_session, _PromptSession(["2"]))
 
     await repl.run_repl(settings, cwd=tmp_path)
 
     assert settings.default_model == "second"
+    assert len(main_session.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_repl_esc_inside_provider_selector_returns_to_repl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path / "home"))
+    settings = Settings(
+        "test",
+        "model",
+        providers=[Provider("test", "https://example.test/v1", "none", ["model"])],
+    )
+    main_session = _PromptSession(["/provider", "/exit"])
+    _patch_repl_sessions(monkeypatch, main_session, _PromptSession([MenuCancelled()]))
+
+    await repl.run_repl(settings, cwd=tmp_path)
+
+    assert settings.default_provider == "test"
     assert len(main_session.calls) == 2
 
 
@@ -122,12 +150,7 @@ async def test_repl_ctrl_c_inside_provider_selector_returns_to_repl(
         providers=[Provider("test", "https://example.test/v1", "none", ["model"])],
     )
     main_session = _PromptSession(["/provider", "/exit"])
-    approval_session = _PromptSession([])
-    repl_sessions = iter([main_session, approval_session])
-    monkeypatch.setattr(repl, "PromptSession", lambda *args, **kwargs: next(repl_sessions))
-    monkeypatch.setattr(
-        repl, "switch_or_add_provider", lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt())
-    )
+    _patch_repl_sessions(monkeypatch, main_session, _PromptSession([KeyboardInterrupt()]))
 
     await repl.run_repl(settings, cwd=tmp_path)
 
@@ -146,12 +169,30 @@ async def test_repl_ctrl_c_at_main_prompt_exits_cleanly(
         providers=[Provider("test", "https://example.test/v1", "none", ["model"])],
     )
     main_session = _PromptSession([KeyboardInterrupt()])
-    repl_sessions = iter([main_session, _PromptSession([])])
-    monkeypatch.setattr(repl, "PromptSession", lambda *args, **kwargs: next(repl_sessions))
+    _patch_repl_sessions(monkeypatch, main_session)
 
     await repl.run_repl(settings, cwd=tmp_path)
 
     assert len(main_session.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_repl_esc_inside_nested_selector_returns_to_repl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path / "home"))
+    settings = Settings(
+        "test",
+        "first",
+        providers=[Provider("test", "https://example.test/v1", "none", ["first", "second"])],
+    )
+    main_session = _PromptSession(["/models", "/exit"])
+    _patch_repl_sessions(monkeypatch, main_session, _PromptSession([MenuCancelled()]))
+
+    await repl.run_repl(settings, cwd=tmp_path)
+
+    assert settings.default_model == "first"
+    assert len(main_session.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -165,12 +206,40 @@ async def test_repl_ctrl_c_inside_nested_selector_returns_to_repl(
         providers=[Provider("test", "https://example.test/v1", "none", ["first", "second"])],
     )
     main_session = _PromptSession(["/models", "/exit"])
-    approval_session = _PromptSession([])
-    repl_sessions = iter([main_session, approval_session])
-    monkeypatch.setattr(repl, "PromptSession", lambda *args, **kwargs: next(repl_sessions))
-    monkeypatch.setattr(repl.IntPrompt, "ask", lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()))
+    _patch_repl_sessions(monkeypatch, main_session, _PromptSession([KeyboardInterrupt()]))
 
     await repl.run_repl(settings, cwd=tmp_path)
 
     assert settings.default_model == "first"
     assert len(main_session.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_run_onboards_inside_the_existing_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from blazecode import cli
+
+    monkeypatch.setenv("BLAZECODE_HOME", str(tmp_path))
+    settings = Settings(
+        "test",
+        "model",
+        providers=[Provider("test", "https://example.test/v1", "none", ["model"])],
+    )
+    loops: list[asyncio.AbstractEventLoop] = []
+
+    async def fake_onboard(**kwargs: object) -> Settings:
+        del kwargs
+        loops.append(asyncio.get_running_loop())
+        return settings
+
+    async def fake_repl(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        loops.append(asyncio.get_running_loop())
+
+    monkeypatch.setattr(cli, "run_onboarding", fake_onboard)
+    monkeypatch.setattr(cli, "run_repl", fake_repl)
+    console = Console(file=io.StringIO(), force_terminal=False, color_system=None)
+    await cli._run(None, None, console)
+    assert len(loops) == 2
+    assert loops[0] is loops[1]

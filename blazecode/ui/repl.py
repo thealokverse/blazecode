@@ -5,10 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.history import DummyHistory, FileHistory
+from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
-from rich.prompt import IntPrompt
 
 from blazecode.agent.loop import AgentLoop
 from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
@@ -19,6 +18,12 @@ from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
 from blazecode.session.message import Message
 from blazecode.session.store import SessionStore
 from blazecode.ui.completer import complete_slash_commands_while_typing, slash_completer
+from blazecode.ui.interact import (
+    MenuCancelled,
+    ask_index,
+    complete_menu,
+    menu_session,
+)
 from blazecode.ui.markdown import render_markdown
 from blazecode.ui.render import Renderer, render_header
 
@@ -40,10 +45,10 @@ async def run_repl(
         key_bindings=_input_bindings(),
         prompt_continuation=lambda width, _line, _wrap: " " * max(width, 0),
     )
-    approval_session: PromptSession[str] = PromptSession(history=DummyHistory())
+    dialog = menu_session()
     approval = ApprovalManager(
         settings.approval_mode,
-        _interactive_approver(approval_session, renderer),
+        _interactive_approver(dialog, renderer),
     )
     agent = AgentLoop(settings, working, store, approval, renderer)
     render_header(console, settings.default_model, working)
@@ -74,7 +79,7 @@ async def run_repl(
             continue
         if text.startswith("/"):
             should_exit, settings = await _command(
-                text, settings, agent, store, renderer, console
+                text, settings, agent, store, console, dialog
             )
             if should_exit:
                 return
@@ -94,6 +99,9 @@ async def run_repl(
                 pass
             console.print("Interrupted.", style="yellow")
             blaze.set_state(State.IDLE)
+        except Exception as exc:
+            console.print(f"Agent error: {exc}", style="red")
+            blaze.set_state(State.ERROR)
 
 
 _SHIFT_ENTER_READY = False
@@ -136,8 +144,8 @@ async def _command(
     settings: Settings,
     agent: AgentLoop,
     store: SessionStore,
-    renderer: Renderer,
     console: Console,
+    dialog: PromptSession[str],
 ) -> tuple[bool, Settings]:
     command, _, argument = text.partition(" ")
     argument = argument.strip()
@@ -159,12 +167,17 @@ async def _command(
     elif command == "/approval":
         settings = _set_approval(settings, argument, console)
     elif command == "/provider":
-        try:
-            settings = switch_or_add_provider(settings, console)
-        except (EOFError, KeyboardInterrupt):
-            console.print("Back.", style="dim")
+        updated = await complete_menu(
+            console, switch_or_add_provider(settings, console, dialog)
+        )
+        if updated is not None:
+            settings = updated
     elif command == "/models":
-        settings = _switch_model(settings, console)
+        updated = await complete_menu(
+            console, _switch_model(settings, console, dialog)
+        )
+        if updated is not None:
+            settings = updated
     elif command == "/export":
         destination = Path(argument).expanduser() if argument else None
         try:
@@ -177,7 +190,7 @@ async def _command(
         agent.replace_messages([])
         console.print("Started a fresh session.")
     elif command == "/resume":
-        _resume_session(store, agent, console)
+        await complete_menu(console, _resume_session(store, agent, console, dialog))
     else:
         console.print(f"Unknown command: {command}", style="red")
     return False, settings
@@ -202,39 +215,27 @@ def _set_approval(settings: Settings, argument: str, console: Console) -> Settin
     return settings
 
 
-def _pick_index(
-    console: Console, prompt: str, options: list[str], current: str | None = None
-) -> int | None:
-    # prints numbered options; returns a 1-based selection or None when cancelled
-    for index, option in enumerate(options, start=1):
-        marker = " (current)" if option == current else ""
-        console.print(f"{index}. {option}{marker}")
-    try:
-        return IntPrompt.ask(
-            prompt,
-            choices=[str(index) for index in range(1, len(options) + 1)],
-            console=console,
-        )
-    except (EOFError, KeyboardInterrupt):
-        console.print("Back.", style="dim")
-        return None
-
-
-def _switch_model(settings: Settings, console: Console) -> Settings:
+async def _switch_model(
+    settings: Settings, console: Console, session: PromptSession[str]
+) -> Settings:
     provider = settings.provider()
-    picked = _pick_index(
-        console, "Select model", provider.models, settings.default_model
-    )
-    if picked is None:
+    if not provider.models:
+        console.print("No models configured. Use /provider to add one.", style="red")
         return settings
+    picked = await ask_index(
+        session, console, provider.models, current=settings.default_model
+    )
     settings.default_model = provider.models[picked - 1]
     settings.save()
     console.print(f"Model: {settings.default_model}")
     return settings
 
 
-def _resume_session(
-    store: SessionStore, agent: AgentLoop, console: Console
+async def _resume_session(
+    store: SessionStore,
+    agent: AgentLoop,
+    console: Console,
+    session: PromptSession[str],
 ) -> None:
     sessions = store.list_sessions()
     if not sessions:
@@ -245,9 +246,7 @@ def _resume_session(
         f"({item.modified_at:%Y-%m-%d %H:%M}, {item.message_count} messages)"
         for item in sessions
     ]
-    picked = _pick_index(console, "Resume", labels)
-    if picked is None:
-        return
+    picked = await ask_index(session, console, labels)
     try:
         messages = store.resume(sessions[picked - 1].session_id)
     except (OSError, ValueError) as exc:
@@ -265,7 +264,7 @@ def _interactive_approver(
         renderer.pause_activity()
         try:
             answer = await session.prompt_async(f"Run {target}? [y/N] ")
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, MenuCancelled):
             return False
         finally:
             renderer.resume_activity()
