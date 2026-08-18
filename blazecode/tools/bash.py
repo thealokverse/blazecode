@@ -6,15 +6,15 @@ import signal
 from pathlib import Path
 from typing import Any
 
-from blazecode.tools.base import OutputCallback, Tool, ToolResult, error_result
+from blazecode.tools.base import OutputCallback, Tool, ToolResult, bound_text, error_result
 
 
 class BashTool(Tool):
     name = "bash"
     mutating = True
     description = (
-        "Run a shell command in the working directory and return combined output. "
-        "Commands run in the foreground with a timeout; no background jobs."
+        "Run a foreground shell command (tests, linters, git). "
+        "Do not use for file read, edit, or search."
     )
     schema = {
         "type": "object",
@@ -65,10 +65,8 @@ class BashTool(Tool):
                 )
             out = stdout.decode("utf-8", errors="replace")
             err = stderr.decode("utf-8", errors="replace")
-            combined = out
-            if err:
-                combined = f"{out}{err}" if out else err
-            text = combined[-100_000:]
+            combined = f"{out}{err}" if err else out
+            text = bound_text(combined)
             if process.returncode:
                 return ToolResult(
                     f"Exit code {process.returncode}\n{text}".rstrip(), is_error=True

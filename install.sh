@@ -9,9 +9,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh | bash
 #
 #   # pin a version
-#   curl -fsSL ... | bash -s -- --version v1.2.3
+#   curl -fsSL ... | bash -s -- --version v1.3.0
 #   # or:
-#   BLAZECODE_VERSION=1.2.3 curl -fsSL ... | bash
+#   BLAZECODE_VERSION=1.3.0 curl -fsSL ... | bash
 #
 #   # custom locations
 #   curl -fsSL ... | bash -s -- --bin-dir ~/.bin
@@ -45,7 +45,7 @@ die()  { err "$*"; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --version)
-      [ $# -ge 2 ] || die "--version needs a tag (e.g. v1.2.3)"
+      [ $# -ge 2 ] || die "--version needs a tag (e.g. v1.3.0)"
       VERSION="$2"; shift 2 ;;
     --bin-dir)
       [ $# -ge 2 ] || die "--bin-dir needs a path"

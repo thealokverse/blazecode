@@ -20,6 +20,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+      - name: Version consistency
+        run: |
+          python - <<'PY'
+          import pathlib, re
+          from blazecode import __version__
+          text = pathlib.Path("pyproject.toml").read_text(encoding="utf-8")
+          match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+          assert match, "pyproject version missing"
+          assert __version__ == match.group(1), (__version__, match.group(1))
+          print(f"version {__version__}")
+          PY
       - name: Test
         run: python -m pytest -q
       - name: Packaging smoke (3.12 only)
@@ -28,3 +39,6 @@ jobs:
           chmod +x scripts/build_release.sh install.sh
           ./scripts/build_release.sh
           test -f dist/release/SHA256SUMS
+          VERSION="$(python -c 'from blazecode import __version__; print(__version__)')"
+          test -f "dist/release/blazecode-${VERSION}-py3-none-any.whl" || ls dist/release/blazecode-*.whl | grep -F "$VERSION"
+          test "$(cat dist/release/VERSION)" = "$VERSION"

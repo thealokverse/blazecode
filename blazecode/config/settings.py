@@ -169,13 +169,18 @@ class Settings:
         return destination
 
     def upsert_provider(self, provider: Provider, model: str) -> None:
-        self.providers = [
-            current for current in self.providers if current.name != provider.name
-        ]
-        self.providers.append(provider)
-        self.default_provider = provider.name
-        self.default_model = model
-        self.validate()
+        previous = (list(self.providers), self.default_provider, self.default_model)
+        try:
+            self.providers = [
+                current for current in self.providers if current.name != provider.name
+            ]
+            self.providers.append(provider)
+            self.default_provider = provider.name
+            self.default_model = model
+            self.validate()
+        except Exception:
+            self.providers, self.default_provider, self.default_model = previous
+            raise
 
 
 def _migrate_approval(mode: str, semantics: int) -> tuple[str, int, bool]:

@@ -58,6 +58,8 @@ def test_command_registry_and_dispatch_cover_all_commands() -> None:
         "/approval",
         "/provider",
         "/models",
+        "/skills",
+        "/compact",
         "/export",
         "/clear",
         "/resume",
@@ -65,14 +67,8 @@ def test_command_registry_and_dispatch_cover_all_commands() -> None:
     }
     assert set(COMMANDS) == expected
     source = inspect.getsource(repl._command)
-    assert "/status" in source
-    assert "/approval" in source
-    assert "/provider" in source
-    assert "/models" in source
-    assert "/export" in source
-    assert "/clear" in source
-    assert "/resume" in source
-    assert "/exit" in source
+    for command in expected:
+        assert command in source
 
 
 def test_async_core_is_ui_neutral_and_event_union_is_complete() -> None:

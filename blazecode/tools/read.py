@@ -8,7 +8,7 @@ from blazecode.tools.base import OutputCallback, Tool, ToolResult, error_result,
 
 class ReadTool(Tool):
     name = "read"
-    description = "Read a UTF-8 text file with optional line offset and limit."
+    description = "Read a UTF-8 text file with optional line offset and limit. Use after grep."
     schema = {
         "type": "object",
         "properties": {

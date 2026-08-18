@@ -136,6 +136,12 @@ class Renderer:
         self._finish_line()
         self.console.print(message, style=ERROR)
 
+    def on_notice(self, message: str) -> None:
+        self._flush_stream()
+        self._stop_live()
+        self._finish_line()
+        self.console.print(f"  {message}", style=MUTED)
+
     def on_complete(self) -> None:
         self._flush_stream()
         self._stop_live()
@@ -265,7 +271,14 @@ class Renderer:
             pass
 
 
-def render_header(console: Console, model: str, cwd: Path) -> None:
+def render_header(
+    console: Console,
+    model: str,
+    cwd: Path,
+    *,
+    git_line: str = "",
+    trusted: bool | None = None,
+) -> None:
     home = Path.home().resolve()
     resolved = cwd.resolve()
     if resolved == home:
@@ -284,6 +297,12 @@ def render_header(console: Console, model: str, cwd: Path) -> None:
     body.append("   /models to change\n", style=MUTED)
     body.append("directory: ", style=MUTED)
     body.append(directory, style=ACCENT)
+    if git_line:
+        body.append("\ngit:       ", style=MUTED)
+        body.append(git_line, style=ACCENT)
+    if trusted is False:
+        body.append("\ntrust:     ", style=MUTED)
+        body.append("untrusted", style=ERROR)
     console.print(
         Panel(
             body,

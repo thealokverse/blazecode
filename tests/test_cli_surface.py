@@ -99,6 +99,8 @@ def _patch_repl_sessions(
 ) -> None:
     monkeypatch.setattr(repl, "PromptSession", lambda *args, **kwargs: main)
     monkeypatch.setattr(repl, "menu_session", lambda: menu or _PromptSession([]))
+    monkeypatch.setattr(repl, "is_trusted", lambda _cwd: True)
+
 
 
 @pytest.mark.asyncio

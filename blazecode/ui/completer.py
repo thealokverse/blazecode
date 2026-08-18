@@ -17,11 +17,14 @@ COMMANDS: dict[str, str] = {
     "/approval": "Autonomy: /approval on (confirm every tool) | off (auto)",
     "/provider": "Add or switch provider",
     "/models": "List or switch models",
+    "/skills": "List or load skills",
+    "/compact": "Summarize older context now",
     "/export": "Export this session to Markdown",
     "/clear": "Start a fresh session",
     "/resume": "Resume a saved session",
     "/exit": "Quit Blazecode",
 }
+
 
 
 class SlashCommandCompleter(Completer):

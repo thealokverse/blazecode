@@ -195,6 +195,21 @@ def _error_detail(body: str) -> str:
     return str(error)[:500]
 
 
+def _http_error(status: int, detail: str) -> str:
+    lower = detail.lower()
+    if status in {401, 403}:
+        return f"authentication failed: HTTP {status}: {detail}"
+    if status == 429:
+        return f"rate limit: HTTP {status}: {detail}"
+    if any(
+        token in lower
+        for token in ("context length", "context_length", "too many tokens", "maximum context")
+    ):
+        return f"context overflow: HTTP {status}: {detail}"
+    return f"HTTP {status}: {detail}"
+
+
+
 async def list_models(
     base_url: str,
     api_key: str | None,
@@ -329,7 +344,7 @@ async def _stream_with_retries(
                     ):
                         await asyncio.sleep(0.5 * (2**attempt))
                         continue
-                    yield Error(f"HTTP {response.status_code}: {detail}")
+                    yield Error(_http_error(response.status_code, detail))
                     return
                 async for line in response.aiter_lines():
                     if not line:

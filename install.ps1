@@ -9,7 +9,7 @@
   Never touches ~/.blazecode (config, sessions, skills).
 
 .PARAMETER Version
-  Install a specific release tag (e.g. 1.2.3 or v1.2.3). Default: latest
+  Install a specific release tag (e.g. 1.3.0 or v1.3.0). Default: latest
   release, falling back to the main branch.
 
 .PARAMETER BinDir
@@ -24,7 +24,7 @@
 
 .EXAMPLE
   # pin a version (local file)
-  .\install.ps1 -Version 1.2.3
+  .\install.ps1 -Version 1.3.0
 
 .EXAMPLE
   # uninstall

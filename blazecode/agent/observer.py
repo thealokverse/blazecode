@@ -21,6 +21,8 @@ class Observer(Protocol):
 
     def on_error(self, message: str) -> None: ...
 
+    def on_notice(self, message: str) -> None: ...
+
     def on_complete(self) -> None: ...
 
     def on_todos(self, todos: Any) -> None: ...
@@ -46,6 +48,9 @@ class NullObserver:
         pass
 
     def on_error(self, message: str) -> None:
+        pass
+
+    def on_notice(self, message: str) -> None:
         pass
 
     def on_complete(self) -> None:

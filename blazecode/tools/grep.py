@@ -39,7 +39,7 @@ _SKIP_DIRS = frozenset(
 
 class GrepTool(Tool):
     name = "grep"
-    description = "Search text files with a regular expression and return matching lines."
+    description = "Search text files with a regular expression. Prefer this over bash grep."
     schema = {
         "type": "object",
         "properties": {

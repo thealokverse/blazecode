@@ -29,7 +29,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 |--------|---------|
 | Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash` |
 | Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash -s -- --uninstall` |
-| Pin version | `curl -fsSL ... \| bash -s -- --version v1.2.3` |
+| Pin version | `curl -fsSL ... \| bash -s -- --version v1.3.0` |
 
 Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
 
@@ -50,7 +50,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 | Update | re-run the `irm ... \| iex` line above |
 | Uninstall (local file) | `.\install.ps1 -Uninstall` |
 | Uninstall (piped) | `$env:BLAZECODE_UNINSTALL = '1'; irm https://raw.githubusercontent.com/thealokverse/blazecode/main/install.ps1 \| iex` |
-| Pin version | `.\install.ps1 -Version 1.2.3` |
+| Pin version | `.\install.ps1 -Version 1.3.0` |
 
 Requirements: **Windows 10+**, **Python 3.11+** (`winget install Python.Python.3.12` or from [python.org](https://www.python.org/)). The installer prefers the `py` launcher, then falls back to `python`/`python3`.
 
@@ -87,10 +87,12 @@ First launch walks you through a provider (OpenAI, Anthropic, Google, OpenRouter
 - **Tools**: `read`, `write`, `edit`, `bash`, `grep`, `todo` (bash streams live output)
 - **Providers**: OpenAI-compatible endpoints with curated text/code model selection
 - **Approvals**: `/approval on` to confirm every tool; `/approval off` for autonomous runs
+- **Workspace trust**: first visit asks before mutating a directory; separate from approvals
+- **Skills**: optional `SKILL.md` folders, discovered locally and loaded on demand
 - **Sessions**: append-only JSONL under `~/.blazecode/sessions`; resume latest via `blazecode --resume`
-- **Context**: project files, git state, and `AGENTS.md`
+- **Context**: repository map, compact git state, and `AGENTS.md` / `BLAZECODE.md`
 - **Todos**: multi-step task tracing when the agent needs it
-- **Compaction**: keeps context lean on long chats
+- **Compaction**: structured summaries with a safe fallback on long chats
 
 Menus (`/models`, `/provider`, `/resume`) use **Esc** to go back. **Ctrl+C** interrupts the current operation or agent run. At the idle prompt, Ctrl+C exits.
 
@@ -137,14 +139,19 @@ Type `/` for fuzzy completion.
 
 | Command | Purpose |
 |---------|---------|
-| `/status` | Provider, model, approval, tokens, mascot |
+| `/status` | Provider, model, approval, trust, tokens, mascot |
 | `/approval on\|off` | Confirm every tool, or autonomous mode |
 | `/provider` | Add or switch provider |
 | `/models` | Switch models |
+| `/skills` | List skills; `/skill name` loads one |
+| `/compact` | Summarize older context now |
 | `/export` | Export session to Markdown |
 | `/clear` | Start a fresh session |
 | `/resume` | Resume a saved session |
 | `/exit` | Quit |
+
+
+
 
 ---
 
@@ -160,8 +167,10 @@ Type `/` for fuzzy completion.
 | `todo` | Session task list for multi-step work |
 
 Paths stay inside the working directory. When approval is `on`, every tool asks first.
+Untrusted directories still allow `read`/`grep`; writes, edits, and shell need a trusted workspace (asked at startup).
 
-Project guidance is loaded from `AGENTS.md` (nearest file up to the git root when present).
+
+Project guidance is loaded from `AGENTS.md` or `BLAZECODE.md` (nearest file up to the git root, plus `~/.blazecode/AGENTS.md`). Skills live in `skills/*/SKILL.md` (project) or `~/.blazecode/skills/*/SKILL.md` (global).
 
 ---
 

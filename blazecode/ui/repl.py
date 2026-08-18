@@ -10,11 +10,15 @@ from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 
 from blazecode.agent.loop import AgentLoop
+from blazecode.agent.prompts import git_oneline
 from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
 from blazecode.context.compaction import estimate_tokens
+from blazecode.context.skills import discover_skills, load_skill, select_skills
+
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
 from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
+from blazecode.permissions.trust import display_path, grant_trust, is_trusted
 from blazecode.session.message import Message
 from blazecode.session.store import SessionStore
 from blazecode.ui.completer import complete_slash_commands_while_typing, slash_completer
@@ -26,6 +30,7 @@ from blazecode.ui.interact import (
 )
 from blazecode.ui.markdown import render_markdown
 from blazecode.ui.render import Renderer, render_header
+
 
 
 async def run_repl(
@@ -46,12 +51,19 @@ async def run_repl(
         prompt_continuation=lambda width, _line, _wrap: " " * max(width, 0),
     )
     dialog = menu_session()
+    trusted = await _ensure_trust(working, console, dialog)
     approval = ApprovalManager(
         settings.approval_mode,
         _interactive_approver(dialog, renderer),
     )
-    agent = AgentLoop(settings, working, store, approval, renderer)
-    render_header(console, settings.default_model, working)
+    agent = AgentLoop(settings, working, store, approval, renderer, trusted=trusted)
+    render_header(
+        console,
+        settings.default_model,
+        working,
+        git_line=git_oneline(working),
+        trusted=trusted,
+    )
     if store.path.exists() and agent.messages:
         console.print(
             f"Resumed {store.session_id} ({len(agent.messages)} messages)",
@@ -153,11 +165,13 @@ async def _command(
         console.print("Bye! Catch you later.")
         return True, settings
     if command == "/status":
+        trust = "trusted" if agent._trusted else "untrusted"
         console.print(
             f"Session: {store.session_id}\n"
             f"Provider: {settings.default_provider}\n"
             f"Model: {settings.default_model}\n"
             f"Approval: {settings.approval_mode}\n"
+            f"Workspace: {trust}\n"
             f"Session tokens: {estimate_tokens(agent.messages)}\n"
             f"Blaze: {blaze.state.value} {blaze.face}"
         )
@@ -178,6 +192,11 @@ async def _command(
         )
         if updated is not None:
             settings = updated
+    elif command in {"/skills", "/skill"} or command.startswith("/skill:"):
+        _show_skills(agent, console, command, argument)
+    elif command == "/compact":
+        summary = agent.compact_now()
+        console.print(summary)
     elif command == "/export":
         destination = Path(argument).expanduser() if argument else None
         try:
@@ -296,3 +315,58 @@ def _render_resumed_history(console: Console, messages: list[Message]) -> None:
             except Exception:
                 console._buffer.clear()
                 print(message.content.encode("ascii", "replace").decode("ascii"))
+
+
+async def _ensure_trust(
+    cwd: Path, console: Console, session: PromptSession[str]
+) -> bool:
+    if is_trusted(cwd):
+        return True
+    console.print(f"Blazecode wants to work in:\n\n  {display_path(cwd)}\n")
+    console.print("Trust this directory?")
+    try:
+        picked = await ask_index(session, console, ["Trust", "Don't trust"])
+    except (MenuCancelled, EOFError, KeyboardInterrupt):
+        return False
+    if picked != 1:
+        console.print("Workspace left untrusted. Mutating tools are blocked.", style="dim")
+        return False
+    try:
+        grant_trust(cwd)
+    except (OSError, ValueError) as exc:
+        console.print(f"Could not save trust: {exc}", style="red")
+        return False
+    return True
+
+
+
+
+
+def _show_skills(
+    agent: AgentLoop, console: Console, command: str, argument: str
+) -> None:
+    name = argument
+    if command.startswith("/skill:"):
+        name = command.split(":", 1)[1].strip() or argument
+    catalog = discover_skills(agent.cwd, trusted=agent._trusted)
+    if name:
+        selected = next((skill for skill in catalog if skill.name == name), None)
+        if selected is None:
+            matches = select_skills(catalog, name, limit=1)
+            selected = matches[0] if matches else None
+        if selected is None:
+            console.print(f"Unknown skill: {name}", style="red")
+            return
+        try:
+            body = load_skill(selected)
+        except OSError as exc:
+            console.print(f"Could not load skill: {exc}", style="red")
+            return
+        console.print(f"# {selected.name}\n{selected.description}\n\n{body}")
+        return
+    if not catalog:
+        console.print("No skills found.")
+        return
+    for skill in catalog:
+        console.print(f"{skill.name} ({skill.origin}): {skill.description}")
+

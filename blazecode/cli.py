@@ -13,10 +13,12 @@ from blazecode.agent.loop import AgentLoop
 from blazecode.config.settings import Settings
 from blazecode.onboarding import needs_onboarding, run_onboarding
 from blazecode.permissions.approval import ApprovalManager
+from blazecode.permissions.trust import is_trusted
 from blazecode.session.store import SessionStore
 from blazecode.ui.interact import MenuCancelled
 from blazecode.ui.render import Renderer
 from blazecode.ui.repl import run_repl
+
 
 app = typer.Typer(
     add_completion=False,
@@ -50,12 +52,14 @@ async def _run(
         await run_repl(settings, store=store)
         return
     renderer = Renderer(console, interactive=False)
+    working = Path.cwd().resolve()
     agent = AgentLoop(
         settings,
-        Path.cwd().resolve(),
+        working,
         store,
         ApprovalManager(settings.approval_mode),
         renderer,
+        trusted=is_trusted(working),
     )
     await agent.run(prompt)
 

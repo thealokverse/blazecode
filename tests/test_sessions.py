@@ -60,3 +60,15 @@ def test_session_load_hardens_corrupt_lines(tmp_path: Path) -> None:
     assert messages[0].content is None
     assert messages[0].input_tokens is None
     assert messages[1].content == "42"
+
+
+def test_session_skips_malformed_line_among_valid(tmp_path: Path) -> None:
+    sessions = tmp_path / "sessions"
+    store = SessionStore(directory=sessions)
+    store.append(Message("user", "keep"))
+    store.append(Message("assistant", "also"))
+    lines = store.path.read_text(encoding="utf-8").splitlines()
+    store.path.write_text("\n".join([lines[0], "not json", lines[1]]) + "\n", encoding="utf-8")
+    messages = store.load()
+    assert [message.content for message in messages] == ["keep", "also"]
+

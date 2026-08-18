@@ -77,3 +77,21 @@ def test_compaction_inserts_note_when_history_is_trimmed() -> None:
     assert notes
     assert "compacted" in (notes[0].content or "")
     assert compacted[-1].content == "current task"
+
+
+def test_compaction_summary_preserves_goal_and_changes() -> None:
+    from blazecode.context.compaction import summarize_history
+
+    messages = [
+        Message("user", "Add a health endpoint"),
+        Message("assistant", "I will add /health", tool_calls=[{"id": "1"}]),
+        Message("tool", "Wrote app.py", tool_call_id="1", name="write"),
+        Message("tool", "Error: tests failed", tool_call_id="2", name="bash"),
+    ]
+    summary = summarize_history(messages)
+    assert "## Goal" in summary
+    assert "health endpoint" in summary
+    assert "## Changes" in summary
+    assert "app.py" in summary
+    assert "## Failures" in summary
+

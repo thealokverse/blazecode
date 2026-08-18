@@ -9,7 +9,7 @@ from blazecode.llm.client import ToolCallStart
 from blazecode.mascot import State
 from blazecode.permissions.approval import ApprovalManager
 from blazecode.tools import TOOLS
-from blazecode.tools.base import OutputCallback, Tool, ToolResult
+from blazecode.tools.base import OutputCallback, Tool, ToolResult, bound_result
 from blazecode.tools.todo import TodoTool
 
 _ALIASES = {
@@ -71,6 +71,7 @@ async def execute_tool(
     approval: ApprovalManager,
     on_output: OutputCallback | None = None,
     todo_store: Any | None = None,
+    trusted: bool = True,
 ) -> ToolResult:
     if call.arguments.get("_parse_error"):
         return ToolResult(
@@ -81,17 +82,26 @@ async def execute_tool(
     tool = TOOLS.get(resolved) if resolved else None
     if tool is None:
         return ToolResult(f"Error: unknown tool {call.name!r}", is_error=True)
+    if tool.mutating and not trusted:
+        return ToolResult(
+            "Error: workspace is not trusted. Mutating tools are blocked. "
+            "Trust this directory at startup to allow writes, edits, and shell commands.",
+            is_error=True,
+        )
+
     if tool.name == "todo" and todo_store is not None:
         tool = TodoTool(todo_store)
     approved, reason = await approval.approve_async(tool, call.arguments)
     if not approved:
         return ToolResult(f"Error: {reason}", is_error=True)
     try:
-        return await tool.run(call.arguments, cwd, on_output=on_output)
+        result = await tool.run(call.arguments, cwd, on_output=on_output)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         return ToolResult(f"Error: {exc}", is_error=True)
+    return bound_result(result)
+
 
 
 def interrupted_tool_message(call: ToolCallStart) -> dict[str, str | None]:

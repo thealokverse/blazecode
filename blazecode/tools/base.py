@@ -18,6 +18,26 @@ class ToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+MAX_TOOL_CHARS = 32_000
+
+
+def bound_text(text: str, limit: int = MAX_TOOL_CHARS) -> str:
+    if len(text) <= limit:
+        return text
+    omitted = len(text) - limit
+    head = (limit * 3) // 4
+    tail = max(0, limit - head - 80)
+    marker = f"\n… [truncated {omitted} chars; output bounded] …\n"
+    return text[:head] + marker + (text[-tail:] if tail else "")
+
+
+def bound_result(result: ToolResult, limit: int = MAX_TOOL_CHARS) -> ToolResult:
+    content = bound_text(result.content, limit)
+    if content == result.content:
+        return result
+    return ToolResult(content, result.is_error, result.diff, result.metadata)
+
+
 class Tool(ABC):
     name: str
     description: str

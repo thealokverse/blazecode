@@ -48,16 +48,20 @@ class SessionStore:
         if not self.path.exists():
             return []
         messages: list[Message] = []
+        had_invalid = False
         for number, line in enumerate(
             self.path.read_text(encoding="utf-8").splitlines(), start=1
         ):
+            if not line.strip():
+                continue
             try:
                 value = json.loads(line)
                 messages.append(Message.from_dict(value))
-            except (json.JSONDecodeError, KeyError, TypeError) as exc:
-                raise ValueError(
-                    f"invalid session record {self.path}:{number}: {exc}"
-                ) from exc
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                had_invalid = True
+                continue
+        if had_invalid and not messages:
+            raise ValueError(f"invalid session record {self.path}:{number}")
         return messages
 
     def replace_with_new(self) -> None:

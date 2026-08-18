@@ -11,8 +11,8 @@ class EditTool(Tool):
     name = "edit"
     mutating = True
     description = (
-        "Replace an exact string in an existing UTF-8 file. Read the file first; "
-        "by default the old string must occur exactly once."
+        "Replace an exact string in an existing UTF-8 file. Read first; "
+        "prefer this over write for existing files."
     )
     schema = {
         "type": "object",

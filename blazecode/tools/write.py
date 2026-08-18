@@ -11,7 +11,7 @@ _DIFF_CHAR_LIMIT = 200_000
 class WriteTool(Tool):
     name = "write"
     mutating = True
-    description = "Write complete UTF-8 content to a file, creating parents as needed."
+    description = "Create a new file or replace an entire file. Prefer edit for existing files."
     schema = {
         "type": "object",
         "properties": {

@@ -49,8 +49,16 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip build wheel
           chmod +x scripts/build_release.sh install.sh
+          PKG="$(python -c "import pathlib,re; t=pathlib.Path('pyproject.toml').read_text(); print(re.search(r'^version\s*=\s*\"([^\"]+)\"', t, re.M).group(1))")"
+          if [[ "${{ steps.ver.outputs.version }}" != "$PKG" ]]; then
+            echo "error: tag ${{ steps.ver.outputs.version }} does not match pyproject $PKG" >&2
+            exit 1
+          fi
           ./scripts/build_release.sh
           ls -lah dist/release
+          test "$(cat dist/release/VERSION)" = "${{ steps.ver.outputs.version }}"
+          ls dist/release/blazecode-${{ steps.ver.outputs.version }}-*.whl
+
 
       - name: Create / update GitHub Release
         uses: softprops/action-gh-release@v2

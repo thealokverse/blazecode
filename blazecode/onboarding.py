@@ -94,10 +94,18 @@ async def switch_or_add_provider(
     if not provider.models:
         output.print("  That provider has no configured models; configure it again.")
         return await run_onboarding(settings, output, session)
-    settings.default_provider = provider.name
-    if settings.default_model not in provider.models:
-        settings.default_model = provider.models[0]
-    settings.save()
+    previous_provider = settings.default_provider
+    previous_model = settings.default_model
+    try:
+        settings.default_provider = provider.name
+        if settings.default_model not in provider.models:
+            settings.default_model = provider.models[0]
+        settings.validate()
+        settings.save()
+    except Exception:
+        settings.default_provider = previous_provider
+        settings.default_model = previous_model
+        raise
     output.print(f"  Switched to {provider.name} / {settings.default_model}")
     return settings
 

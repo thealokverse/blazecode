@@ -40,6 +40,81 @@ def _char_tokens(messages: Sequence[Message]) -> int:
     return max(1, (characters + 3) // 4) if messages else 0
 
 
+_SUMMARY_LIMIT = 2_000
+
+
+def summarize_history(messages: Sequence[Message]) -> str:
+    goal = ""
+    files: list[str] = []
+    changes: list[str] = []
+    failures: list[str] = []
+    tests: list[str] = []
+    decisions: list[str] = []
+    remaining: list[str] = []
+    for message in messages:
+        text = (message.content or "").strip()
+        if not text:
+            continue
+        if message.role == "user" and not text.startswith("[") and not goal:
+            goal = _clip(text, 240)
+        elif message.role == "user" and text.startswith("[context compacted]"):
+            decisions.append(_clip(text.splitlines()[0], 160))
+        elif message.role == "tool":
+            _absorb_tool(message, files, changes, failures, tests)
+        elif message.role == "assistant" and text and not message.tool_calls:
+            if any(token in text.lower() for token in ("decided", "will", "instead")):
+                decisions.append(_clip(text, 160))
+        if message.role == "system" and "todo" in text.lower():
+            remaining.append(_clip(text, 160))
+    sections = ["## Goal", goal or "(not recorded)", "", "## Current state", "Compacted earlier turns; continue from recent messages."]
+    if changes:
+        sections.extend(["", "## Changes", *[f"- {item}" for item in changes[:8]]])
+    if files:
+        sections.extend(["", "## Important files", *[f"- {item}" for item in files[:10]]])
+    if decisions:
+        sections.extend(["", "## Decisions", *[f"- {item}" for item in decisions[:6]]])
+    if tests:
+        sections.extend(["", "## Tests", *[f"- {item}" for item in tests[:6]]])
+    if failures:
+        sections.extend(["", "## Failures / constraints", *[f"- {item}" for item in failures[:8]]])
+    if remaining:
+        sections.extend(["", "## Remaining work", *[f"- {item}" for item in remaining[:6]]])
+    summary = "\n".join(sections).strip()
+    if len(summary) > _SUMMARY_LIMIT:
+        summary = summary[:_SUMMARY_LIMIT].rstrip() + "\n…"
+    return summary
+
+
+def _clip(text: str, limit: int) -> str:
+    compact = " ".join(text.split())
+    return compact if len(compact) <= limit else compact[: limit - 1] + "…"
+
+
+def _absorb_tool(
+    message: Message,
+    files: list[str],
+    changes: list[str],
+    failures: list[str],
+    tests: list[str],
+) -> None:
+    text = (message.content or "").strip()
+    name = message.name or "tool"
+    first = text.splitlines()[0] if text else ""
+    if name in {"write", "edit"} and first:
+        changes.append(_clip(f"{name}: {first}", 160))
+        token = first.split()[-1] if first.split() else ""
+        if token and token not in files:
+            files.append(token)
+    elif name == "bash":
+        lowered = text.lower()
+        if "exit code" in lowered or first.lower().startswith("error"):
+            failures.append(_clip(f"bash: {first}", 160))
+        if "passed" in lowered or "failed" in lowered or "pytest" in lowered:
+            tests.append(_clip(first or "test run", 160))
+    elif text.lower().startswith("error"):
+        failures.append(_clip(f"{name}: {first}", 160))
+
+
 def compact_messages(
     messages: Sequence[Message], max_tokens: int, recent_messages: int = 20
 ) -> list[Message]:
@@ -73,16 +148,15 @@ def compact_messages(
     head: list[Message] = [system] if system else []
     if start > 0:
         omitted = start
-        # one-line recovery hint so the model knows history was trimmed
-        head.append(
-            Message(
-                role="system",
-                content=(
-                    f"[context compacted: omitted {omitted} earlier messages; "
-                    "retain goals, decisions, and the active task from what remains]"
-                ),
+        try:
+            summary = summarize_history(body[:start])
+            content = f"[context compacted: omitted {omitted} earlier messages]\n{summary}"
+        except Exception:
+            content = (
+                f"[context compacted: omitted {omitted} earlier messages; "
+                "retain goals, decisions, and the active task from what remains]"
             )
-        )
+        head.append(Message(role="system", content=content))
     return head + keep
 
 
