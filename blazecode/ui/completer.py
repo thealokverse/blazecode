@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from difflib import get_close_matches
 
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.completion import (
@@ -13,18 +14,17 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
 
 COMMANDS: dict[str, str] = {
-    "/status": "Show provider, model, approval, tokens, and Blaze state",
-    "/approval": "Autonomy: /approval on (confirm every tool) | off (auto)",
-    "/provider": "Add or switch provider",
-    "/models": "List or switch models",
-    "/skills": "List or load skills",
-    "/compact": "Summarize older context now",
-    "/export": "Export this session to Markdown",
-    "/clear": "Start a fresh session",
-    "/resume": "Resume a saved session",
-    "/exit": "Quit Blazecode",
+    "/status": "provider, model, approval, tokens",
+    "/approval": "on confirm · off autonomous",
+    "/provider": "switch or add provider",
+    "/models": "switch model",
+    "/skills": "list or load a skill",
+    "/compact": "summarize older context",
+    "/export": "write session markdown",
+    "/clear": "start a fresh session",
+    "/resume": "open a saved session",
+    "/exit": "quit",
 }
-
 
 
 class SlashCommandCompleter(Completer):
@@ -49,6 +49,14 @@ def slash_completer() -> Completer:
 
 def is_slash_command(document: Document) -> bool:
     return document.current_line_before_cursor.startswith("/")
+
+
+def suggest_command(text: str) -> str | None:
+    token = text.strip().split(None, 1)[0] if text.strip() else ""
+    if not token:
+        return None
+    matches = get_close_matches(token, COMMANDS, n=1, cutoff=0.55)
+    return matches[0] if matches else None
 
 
 @Condition

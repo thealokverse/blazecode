@@ -8,6 +8,9 @@ from prompt_toolkit.history import DummyHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from rich.console import Console
+from rich.text import Text
+
+from blazecode.ui.theme import ACCENT, MUTED, WARN
 
 T = TypeVar("T")
 
@@ -61,24 +64,30 @@ async def ask_index(
         raise MenuCancelled()
     console.print()
     for index, option in enumerate(options, start=1):
-        marker = " (current)" if option == current else ""
-        console.print(f"  {index}. {option}{marker}")
-    console.print("  Esc to go back", style="dim")
+        line = Text()
+        line.append(f"  {index}. ", style=MUTED)
+        if option == current:
+            line.append(option, style=ACCENT)
+            line.append("  (current)", style=MUTED)
+        else:
+            line.append(option)
+        console.print(line)
+    console.print("  Esc to go back", style=MUTED)
     console.print()
     valid = {str(index) for index in range(1, len(options) + 1)}
     while True:
         raw = (await ask_line(session, prompt)).strip()
         if raw in valid:
             return int(raw)
-        console.print(f"  Enter 1–{len(options)}, or Esc to go back.", style="dim")
+        console.print(f"  Enter 1–{len(options)}, or Esc to go back.", style=MUTED)
 
 
 async def complete_menu(console: Console, awaitable: Awaitable[T]) -> T | None:
     try:
         return await awaitable
     except MenuCancelled:
-        console.print("Back.", style="dim")
+        console.print("Back.", style=MUTED)
         return None
     except KeyboardInterrupt:
-        console.print("Interrupted.", style="yellow")
+        console.print("Interrupted.", style=WARN)
         return None

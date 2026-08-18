@@ -68,7 +68,7 @@ async def collect_stream(
                     usage.get("completion_tokens"),
                 )
     except asyncio.CancelledError:
-        raise
+        return "".join(text_parts), calls, "interrupted", None, None
     except Exception as exc:
         return "".join(text_parts), calls, f"provider failure: {exc}", None, None
     return "".join(text_parts), calls, None, None, None

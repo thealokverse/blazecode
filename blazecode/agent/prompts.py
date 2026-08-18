@@ -3,7 +3,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-
 from blazecode.config.settings import config_home
 from blazecode.context.repo_map import build_repo_map
 from blazecode.context.skills import SkillMeta, format_skill_index

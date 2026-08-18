@@ -23,7 +23,6 @@ from blazecode.context.skills import SkillMeta
 from blazecode.llm.client import ToolCallStart, stream_completion
 from blazecode.mascot import Mascot, State, blaze
 from blazecode.permissions.approval import ApprovalManager
-from blazecode.permissions.trust import is_trusted
 from blazecode.session.message import Message
 from blazecode.session.store import SessionStore
 from blazecode.tools import TOOLS
@@ -65,10 +64,6 @@ class AgentLoop:
 
     def request_cancel(self) -> None:
         self._cancel = True
-
-    def refresh_workspace(self) -> None:
-        self._trusted = is_trusted(self.cwd)
-        self._system_prompt = None
 
     def replace_messages(self, messages: list[Message]) -> None:
         self.messages = messages
@@ -159,17 +154,16 @@ class AgentLoop:
                         return self._finish(final_text, "interrupted", State.IDLE)
                     try:
                         await self._run_tool(call)
-                    except asyncio.CancelledError:
+                    except (asyncio.CancelledError, KeyboardInterrupt):
                         self._abort_tools(calls[index:])
-                        raise
+                        return self._finish(final_text, "interrupted", State.IDLE)
             remaining = self.todos.render()
             detail = f"agent stopped after reaching the iteration limit ({self.max_iterations})"
             if remaining:
                 detail += f"\nremaining todos:\n{remaining}"
             return self._finish(final_text, detail, State.ERROR)
-        except asyncio.CancelledError:
-            self._finish(final_text, None, State.IDLE)
-            raise
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            return self._finish(final_text, "interrupted", State.IDLE)
 
     async def _run_tool(self, call: ToolCallStart) -> None:
         self._append(
@@ -183,7 +177,6 @@ class AgentLoop:
                 self._state,
             )
         )
-
 
     def _repeat_blocked(self, calls: list[ToolCallStart], recent: list[str]) -> bool:
         recent.append(calls_signature(calls))

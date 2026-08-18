@@ -44,7 +44,7 @@ async def run_onboarding(
         choice = await ask_index(session, output, labels)
         try:
             provider = await _collect_provider(choice, output, session)
-            output.print("\n  Fetching recommended models...")
+            output.print("\n  Fetching recommended models...", style="dim")
             fetched = await verify_provider(provider.base_url, provider.api_key)
             if fetched:
                 provider.models = fetched

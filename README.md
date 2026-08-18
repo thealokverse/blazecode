@@ -29,7 +29,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 |--------|---------|
 | Update | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash` |
 | Uninstall | `curl -fsSL https://raw.githubusercontent.com/thealokverse/blazecode/main/install.sh \| bash -s -- --uninstall` |
-| Pin version | `curl -fsSL ... \| bash -s -- --version v1.3.0` |
+| Pin version | `curl -fsSL ... \| bash -s -- --version v1.3.1` |
 
 Requirements: **Python 3.11+**, `curl` (or `wget`), `tar`.
 
@@ -50,7 +50,7 @@ Your config and sessions in `~/.blazecode` are never touched.
 | Update | re-run the `irm ... \| iex` line above |
 | Uninstall (local file) | `.\install.ps1 -Uninstall` |
 | Uninstall (piped) | `$env:BLAZECODE_UNINSTALL = '1'; irm https://raw.githubusercontent.com/thealokverse/blazecode/main/install.ps1 \| iex` |
-| Pin version | `.\install.ps1 -Version 1.3.0` |
+| Pin version | `.\install.ps1 -Version 1.3.1` |
 
 Requirements: **Windows 10+**, **Python 3.11+** (`winget install Python.Python.3.12` or from [python.org](https://www.python.org/)). The installer prefers the `py` launcher, then falls back to `python`/`python3`.
 
@@ -181,6 +181,8 @@ python -m pip install -e ".[dev]"
 python -m pytest -q
 python -m blazecode
 ```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to help, and [DEVELOPMENT.md](./DEVELOPMENT.md) for current direction.
 
 ---
 

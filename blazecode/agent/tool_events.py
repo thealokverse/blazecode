@@ -35,14 +35,22 @@ def tool_call_message(call: ToolCallStart) -> dict[str, Any]:
         if not str(key).startswith("_")
     }
     name = resolve_tool_name(call.name) or call.name
-    return {
+    function: dict[str, Any] = {
+        "name": name,
+        "arguments": json.dumps(arguments, ensure_ascii=False),
+    }
+    for key, value in call.function_extra.items():
+        if key not in {"name", "arguments"}:
+            function[key] = value
+    payload: dict[str, Any] = {
         "id": call.call_id,
         "type": "function",
-        "function": {
-            "name": name,
-            "arguments": json.dumps(arguments, ensure_ascii=False),
-        },
+        "function": function,
     }
+    for key, value in call.extra.items():
+        if key not in {"id", "type", "function", "index"}:
+            payload[key] = value
+    return payload
 
 
 def resolve_tool_name(name: str) -> str | None:
@@ -101,7 +109,6 @@ async def execute_tool(
     except Exception as exc:
         return ToolResult(f"Error: {exc}", is_error=True)
     return bound_result(result)
-
 
 
 def interrupted_tool_message(call: ToolCallStart) -> dict[str, str | None]:

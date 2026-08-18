@@ -57,7 +57,7 @@ def summarize_history(messages: Sequence[Message]) -> str:
             continue
         if message.role == "user" and not text.startswith("[") and not goal:
             goal = _clip(text, 240)
-        elif message.role == "user" and text.startswith("[context compacted]"):
+        elif text.startswith("[context compacted]"):
             decisions.append(_clip(text.splitlines()[0], 160))
         elif message.role == "tool":
             _absorb_tool(message, files, changes, failures, tests)

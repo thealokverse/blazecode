@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,16 +13,34 @@ from rich.text import Text
 
 from blazecode import __version__
 from blazecode.mascot import FACES, Mascot, State, blaze
+from blazecode.permissions.trust import display_path
 from blazecode.tools.base import ToolResult
 from blazecode.ui.markdown import render_diff, render_markdown, render_partial, split_stable
 from blazecode.ui.theme import ACCENT, ERROR, MUTED, SUCCESS
 
 _STATUS: dict[State, str] = {
-    State.THINKING: "thinking...",
-    State.SEARCHING: "searching...",
-    State.EDITING: "writing...",
-    State.DEBUGGING: "working...",
+    State.THINKING: "thinking",
+    State.SEARCHING: "searching",
+    State.EDITING: "writing",
+    State.DEBUGGING: "working",
 }
+
+_TOOL_GERUND = {
+    "read": "reading",
+    "grep": "searching",
+    "write": "writing",
+    "edit": "editing",
+    "bash": "running",
+    "todo": "updating todos",
+}
+
+
+class _LiveView:
+    def __init__(self, renderer: Renderer) -> None:
+        self._renderer = renderer
+
+    def __rich__(self) -> Group | Text:
+        return self._renderer._renderable()
 
 
 class Renderer:
@@ -74,6 +93,10 @@ class Renderer:
         self._tool_target = _tool_target(name, arguments)
         self._tool_output_open = False
         self._tool_line_start = True
+        verb = _TOOL_GERUND.get(name, name)
+        target = self._tool_target
+        self._activity = f"{verb} {target}".rstrip() if target else verb
+        self._start_live()
         self._refresh_live()
 
     def on_tool_output(self, name: str, chunk: str) -> None:
@@ -140,7 +163,7 @@ class Renderer:
         self._flush_stream()
         self._stop_live()
         self._finish_line()
-        self.console.print(f"  {message}", style=MUTED)
+        self.console.print(f"  · {message}", style=MUTED)
 
     def on_complete(self) -> None:
         self._flush_stream()
@@ -221,24 +244,21 @@ class Renderer:
 
     def _renderable(self) -> Group | Text:
         # live stays one/two lines only; never full code panels
-        status = self._activity or ("…" if self._pending else None)
-        face_line = (
-            Text(f"{self.mascot.face} {status}", style=ACCENT)
-            if status
-            else Text(f"{self.mascot.face} …", style=ACCENT)
-        )
+        if self._activity:
+            face_line = Text(f"{self.mascot.face} {_pulse(self._activity)}", style=ACCENT)
+        else:
+            face_line = Text(f"{self.mascot.face} …", style=ACCENT)
         if self._pending and not self._activity:
-            preview = render_partial(self._pending)
-            return Group(preview, face_line)
+            return Group(render_partial(self._pending), face_line)
         return face_line
 
     def _start_live(self) -> None:
         if not self.interactive or self._live or not self.console.is_terminal:
             return
         self._live = Live(
-            self._renderable(),
+            _LiveView(self),
             console=self.console,
-            refresh_per_second=16,
+            refresh_per_second=8,
             transient=True,
             vertical_overflow="crop",
         )
@@ -246,7 +266,7 @@ class Renderer:
 
     def _refresh_live(self) -> None:
         if self._live:
-            self._live.update(self._renderable(), refresh=True)
+            self._live.refresh()
 
     def _finish_line(self) -> None:
         if self._line_open:
@@ -278,25 +298,17 @@ def render_header(
     *,
     git_line: str = "",
     trusted: bool | None = None,
+    provider: str = "",
 ) -> None:
-    home = Path.home().resolve()
-    resolved = cwd.resolve()
-    if resolved == home:
-        directory = "~"
-    else:
-        try:
-            directory = "~/" + str(resolved.relative_to(home))
-        except ValueError:
-            directory = str(resolved)
-
     face = FACES[State.THINKING]
+    shown = f"{provider} / {model}" if provider else model
     body = Text()
     body.append(f"{face} Blazecode (v{__version__})\n\n", style="bold")
     body.append("model:     ", style=MUTED)
-    body.append(f"{model}", style=ACCENT)
+    body.append(shown, style=ACCENT)
     body.append("   /models to change\n", style=MUTED)
     body.append("directory: ", style=MUTED)
-    body.append(directory, style=ACCENT)
+    body.append(display_path(cwd), style=ACCENT)
     if git_line:
         body.append("\ngit:       ", style=MUTED)
         body.append(git_line, style=ACCENT)
@@ -312,6 +324,48 @@ def render_header(
         )
     )
     console.print()
+
+
+def render_status(
+    console: Console,
+    *,
+    session: str,
+    provider: str,
+    model: str,
+    approval: str,
+    workspace: str,
+    tokens: int,
+    state: str,
+    face: str,
+    git_line: str = "",
+    todos: str = "",
+) -> None:
+    rows = [
+        ("session", session),
+        ("provider", provider),
+        ("model", model),
+        ("approval", approval),
+        ("workspace", workspace),
+        ("tokens", f"{tokens:,}"),
+        ("blaze", f"{state} {face}"),
+    ]
+    if git_line:
+        rows.insert(5, ("git", git_line))
+    for label, value in rows:
+        line = Text()
+        line.append(f"  {label:<10}", style=MUTED)
+        style = ERROR if label == "workspace" and value == "untrusted" else ACCENT
+        line.append(value, style=style)
+        console.print(line)
+    if todos:
+        console.print()
+        console.print(todos, style=MUTED)
+
+
+
+def _pulse(label: str) -> str:
+    frame = 1 + int(time.monotonic() * 3) % 3
+    return f"{label}{'.' * frame}"
 
 
 def _tool_target(name: str, arguments: dict[str, Any]) -> str:

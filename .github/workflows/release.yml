@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.1.0). Empty uses pyproject version."
+        description: "Release tag (e.g. v1.3.1). Empty uses pyproject version."
         required: false
         default: ""
 

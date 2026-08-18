@@ -28,7 +28,8 @@ class ToolCallStart:
     call_id: str
     name: str
     arguments: dict[str, Any]
-
+    extra: dict[str, Any] = field(default_factory=dict)
+    function_extra: dict[str, Any] = field(default_factory=dict)
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
@@ -115,19 +116,23 @@ def _normalize_content(content: Any) -> str | None:
     return str(content)
 
 
-def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
+def _accumulate_tool_part(calls: dict[int, dict[str, Any]], part: Any) -> None:
     if not isinstance(part, dict):
         return
     try:
         index = int(part.get("index", 0))
     except (TypeError, ValueError):
         index = 0
-    current = calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+    current = calls.setdefault(
+        index,
+        {"id": "", "name": "", "arguments": "", "extra": {}, "function_extra": {}},
+    )
     call_id = part.get("id")
     if call_id:
         text = str(call_id)
         if not current["id"] or len(text) >= len(current["id"]):
             current["id"] = text
+    _merge_extra(current["extra"], _unknown_fields(part, {"index", "id", "type", "function", "name", "arguments"}))
     function = part.get("function")
     if function is None:
         name = part.get("name")
@@ -142,6 +147,10 @@ def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
         return
     if not isinstance(function, dict):
         return
+    _merge_extra(
+        current["function_extra"],
+        _unknown_fields(function, {"name", "arguments"}),
+    )
     name = function.get("name")
     if name:
         current["name"] = _merge_name(current["name"], str(name))
@@ -152,6 +161,39 @@ def _accumulate_tool_part(calls: dict[int, dict[str, str]], part: Any) -> None:
         current["arguments"] = json.dumps(arguments, ensure_ascii=False)
     else:
         current["arguments"] += str(arguments)
+
+
+def _unknown_fields(source: dict[str, Any], skip: set[str]) -> dict[str, Any]:
+    return {key: value for key, value in source.items() if key not in skip and value is not None}
+
+
+def _merge_extra(dest: dict[str, Any], incoming: dict[str, Any]) -> None:
+    for key, value in incoming.items():
+        existing = dest.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged = dict(existing)
+            _merge_extra(merged, value)
+            dest[key] = merged
+        else:
+            dest[key] = value
+
+
+def _attach_message_extra(calls: dict[int, dict[str, Any]], delta: dict[str, Any]) -> None:
+    extra_content = delta.get("extra_content")
+    if not isinstance(extra_content, dict):
+        return
+    bucket = calls.setdefault(
+        0,
+        {"id": "", "name": "", "arguments": "", "extra": {}, "function_extra": {}},
+    )
+    extra = bucket.setdefault("extra", {})
+    current = extra.get("extra_content")
+    if isinstance(current, dict):
+        merged = dict(current)
+        _merge_extra(merged, extra_content)
+        extra["extra_content"] = merged
+    else:
+        extra["extra_content"] = extra_content
 
 
 def _merge_name(existing: str, incoming: str) -> str:
@@ -310,7 +352,7 @@ async def _stream_with_retries(
             body_payload.pop("parallel_tool_calls", None)
         if drop_choice:
             body_payload.pop("tool_choice", None)
-        calls: dict[int, dict[str, str]] = {}
+        calls: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: dict[str, int] = {}
         emitted = False
@@ -414,6 +456,7 @@ async def _stream_with_retries(
                             },
                         )
                         emitted = True
+                    _attach_message_extra(calls, delta)
             for index in sorted(calls):
                 call = calls[index]
                 name = (call.get("name") or "").strip()
@@ -424,7 +467,13 @@ async def _stream_with_retries(
                 except ValueError as exc:
                     arguments = {"_parse_error": str(exc)}
                 call_id = (call.get("id") or "").strip() or f"call_{index}"
-                yield ToolCallStart(call_id, name, arguments)
+                yield ToolCallStart(
+                    call_id,
+                    name,
+                    arguments,
+                    dict(call.get("extra") or {}),
+                    dict(call.get("function_extra") or {}),
+                )
             yield Done(finish_reason, usage)
             return
         except (httpx.HTTPError, TimeoutError, OSError) as exc:

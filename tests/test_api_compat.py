@@ -68,6 +68,32 @@ def test_tool_call_message_strips_internal_keys() -> None:
     assert args == {"path": "a.py"}
 
 
+def test_tool_call_message_preserves_provider_extra_fields() -> None:
+    call = ToolCallStart(
+        "call_write",
+        "write",
+        {"path": "a.py", "content": "x"},
+        extra={
+            "extra_content": {"google": {"thought_signature": "sig-abc"}},
+        },
+        function_extra={"thought_signature": "fn-sig"},
+    )
+    serialized = tool_call_message(call)
+    assert serialized["id"] == "call_write"
+    assert serialized["extra_content"]["google"]["thought_signature"] == "sig-abc"
+    assert serialized["function"]["thought_signature"] == "fn-sig"
+    assert json.loads(serialized["function"]["arguments"]) == {
+        "path": "a.py",
+        "content": "x",
+    }
+    stored = Message(role="assistant", content="", tool_calls=[serialized])
+    replayed = stored.to_dict(api=True)
+    assert replayed["tool_calls"][0]["extra_content"]["google"]["thought_signature"] == "sig-abc"
+    loaded = Message.from_dict(stored.to_dict())
+    assert loaded.tool_calls[0]["extra_content"]["google"]["thought_signature"] == "sig-abc"
+
+
+
 def test_resolve_tool_name_aliases() -> None:
     assert resolve_tool_name("Read") == "read"
     assert resolve_tool_name("shell") == "bash"
@@ -149,3 +175,56 @@ async def test_stream_handles_content_part_lists_and_name_resends() -> None:
     assert call.arguments == {"path": "x.py"}
     assert call.call_id == "call_abc"
     assert any(isinstance(e, Done) for e in events)
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_thought_signature_extra_content() -> None:
+    chunks = [
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_write",
+                                "type": "function",
+                                "function": {
+                                    "name": "write",
+                                    "arguments": '{"path":"a.py","content":"x"}',
+                                },
+                                "extra_content": {
+                                    "google": {"thought_signature": "sig-stream"}
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    ]
+    body = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks)
+    body += "data: [DONE]\n\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=body)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        events = [
+            event
+            async for event in stream_completion(
+                "https://example.test/v1",
+                "secret",
+                "gemini-3.1-flash",
+                [{"role": "user", "content": "write a.py"}],
+                [{"type": "function", "function": {"name": "write"}}],
+                client=client,
+            )
+        ]
+    call = next(event for event in events if isinstance(event, ToolCallStart))
+    assert call.name == "write"
+    assert call.extra["extra_content"]["google"]["thought_signature"] == "sig-stream"
+    replayed = tool_call_message(call)
+    assert replayed["extra_content"]["google"]["thought_signature"] == "sig-stream"
+

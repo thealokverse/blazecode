@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,118 @@ async def test_agent_executes_tool_then_returns_final_text(tmp_path: Path) -> No
         "tool",
         "assistant",
     ]
+
+
+@pytest.mark.asyncio
+async def test_tool_call_extra_is_replayed_on_the_next_provider_turn(
+    tmp_path: Path,
+) -> None:
+    calls = 0
+    seen: list[dict[str, Any]] = []
+
+    async def streamer(
+        base_url: str,
+        api_key: str | None,
+        model: str,
+        messages: Sequence[dict[str, Any]],
+        tools: Sequence[dict[str, Any]],
+    ) -> AsyncIterator[Event]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            yield ToolCallStart(
+                "call_1",
+                "write",
+                {"path": "out.txt", "content": "ok"},
+                extra={"extra_content": {"google": {"thought_signature": "sig-1"}}},
+            )
+            yield Done("tool_calls")
+            return
+        seen.extend(messages)
+        assistant = next(
+            message
+            for message in messages
+            if message.get("role") == "assistant" and message.get("tool_calls")
+        )
+        tool_call = assistant["tool_calls"][0]
+        assert tool_call["extra_content"]["google"]["thought_signature"] == "sig-1"
+        yield TextDelta("wrote it")
+        yield Done("stop")
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        streamer=streamer,
+    )
+    assert await loop.run("Create out.txt") == "wrote it"
+    assert seen
+    stored = next(message for message in store.load() if message.tool_calls)
+    assert stored.tool_calls[0]["extra_content"]["google"]["thought_signature"] == "sig-1"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stream_finishes_without_raising(tmp_path: Path) -> None:
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        yield TextDelta("partial")
+        raise asyncio.CancelledError
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    observer = RecordingObserver()
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        observer,
+        streamer=streamer,
+    )
+    result = await loop.run("go")
+    assert result == "partial"
+    assert "interrupted" in observer.errors
+    assert store.load()[-1].role == "assistant"
+    assert store.load()[-1].content == "partial"
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_tool_aborts_remaining_without_raising(
+    tmp_path: Path,
+) -> None:
+    async def streamer(*args: Any) -> AsyncIterator[Event]:
+        yield ToolCallStart("c1", "write", {"path": "a.txt", "content": "a"})
+        yield ToolCallStart("c2", "write", {"path": "b.txt", "content": "b"})
+        yield Done("tool_calls")
+
+    store = SessionStore(directory=tmp_path / "sessions")
+    observer = RecordingObserver()
+    loop = AgentLoop(
+        _settings("off"),
+        tmp_path,
+        store,
+        ApprovalManager("off"),
+        observer,
+        streamer=streamer,
+    )
+    original = loop._run_tool
+
+    async def boom(call: ToolCallStart) -> None:
+        if call.call_id == "c2":
+            raise asyncio.CancelledError
+        await original(call)
+
+    loop._run_tool = boom  # type: ignore[method-assign]
+    result = await loop.run("write both")
+    assert result == ""
+    assert "interrupted" in observer.errors
+    tools = [message for message in store.load() if message.role == "tool"]
+    assert [item.tool_call_id for item in tools] == ["c1", "c2"]
+    assert "interrupted" in tools[1].content
+    assert (tmp_path / "a.txt").exists()
+    assert not (tmp_path / "b.txt").exists()
+
+
 
 
 @pytest.mark.asyncio

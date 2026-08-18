@@ -7,21 +7,26 @@ from typing import Any
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style
 from rich.console import Console
+from rich.text import Text
 
 from blazecode.agent.loop import AgentLoop
 from blazecode.agent.prompts import git_oneline
 from blazecode.config.settings import APPROVAL_MODES, Settings, config_home
 from blazecode.context.compaction import estimate_tokens
 from blazecode.context.skills import discover_skills, load_skill, select_skills
-
 from blazecode.mascot import State, blaze
 from blazecode.onboarding import switch_or_add_provider
 from blazecode.permissions.approval import ApprovalCallback, ApprovalManager
 from blazecode.permissions.trust import display_path, grant_trust, is_trusted
 from blazecode.session.message import Message
 from blazecode.session.store import SessionStore
-from blazecode.ui.completer import complete_slash_commands_while_typing, slash_completer
+from blazecode.ui.completer import (
+    complete_slash_commands_while_typing,
+    slash_completer,
+    suggest_command,
+)
 from blazecode.ui.interact import (
     MenuCancelled,
     ask_index,
@@ -29,8 +34,16 @@ from blazecode.ui.interact import (
     menu_session,
 )
 from blazecode.ui.markdown import render_markdown
-from blazecode.ui.render import Renderer, render_header
+from blazecode.ui.render import Renderer, render_header, render_status
+from blazecode.ui.theme import ACCENT, ERROR, MUTED, WARN
 
+_PROMPT_STYLE = Style.from_dict(
+    {
+        "prompt": "bold ansicyan",
+        "face": "ansicyan",
+        "mark": "ansicyan",
+    }
+)
 
 
 async def run_repl(
@@ -48,6 +61,7 @@ async def run_repl(
         complete_in_thread=True,
         multiline=True,
         key_bindings=_input_bindings(),
+        style=_PROMPT_STYLE,
         prompt_continuation=lambda width, _line, _wrap: " " * max(width, 0),
     )
     dialog = menu_session()
@@ -63,19 +77,28 @@ async def run_repl(
         working,
         git_line=git_oneline(working),
         trusted=trusted,
+        provider=settings.default_provider,
     )
     if store.path.exists() and agent.messages:
         console.print(
-            f"Resumed {store.session_id} ({len(agent.messages)} messages)",
-            style="dim",
+            f"  Resumed {store.session_id}  ·  {len(agent.messages)} messages",
+            style=MUTED,
         )
+        console.print()
         _render_resumed_history(console, agent.messages)
+    else:
+        console.print("  Type a task, or / for commands.", style=MUTED)
+        console.print()
     while True:
         blaze.set_state(State.IDLE)
         try:
             text = (
                 await session.prompt_async(
-                    [("class:prompt", f"blaze {blaze.face} ❯ ")],
+                    [
+                        ("class:prompt", "blaze "),
+                        ("class:face", f"{blaze.face} "),
+                        ("class:mark", "❯ "),
+                    ],
                 )
             ).strip()
         except EOFError:
@@ -102,18 +125,25 @@ async def run_repl(
         task = asyncio.create_task(agent.run(text))
         try:
             await task
-        except (asyncio.CancelledError, KeyboardInterrupt):
+        except KeyboardInterrupt:
             agent.request_cancel()
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            console.print("Interrupted.", style="yellow")
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    pass
+            console.print("Interrupted.", style=WARN)
+            blaze.set_state(State.IDLE)
+        except asyncio.CancelledError:
+            agent.request_cancel()
+            console.print("Interrupted.", style=WARN)
             blaze.set_state(State.IDLE)
         except Exception as exc:
-            console.print(f"Agent error: {exc}", style="red")
+            console.print(f"Agent error: {exc}", style=ERROR)
             blaze.set_state(State.ERROR)
+        finally:
+            renderer.pause_activity()
 
 
 _SHIFT_ENTER_READY = False
@@ -165,19 +195,19 @@ async def _command(
         console.print("Bye! Catch you later.")
         return True, settings
     if command == "/status":
-        trust = "trusted" if agent._trusted else "untrusted"
-        console.print(
-            f"Session: {store.session_id}\n"
-            f"Provider: {settings.default_provider}\n"
-            f"Model: {settings.default_model}\n"
-            f"Approval: {settings.approval_mode}\n"
-            f"Workspace: {trust}\n"
-            f"Session tokens: {estimate_tokens(agent.messages)}\n"
-            f"Blaze: {blaze.state.value} {blaze.face}"
+        render_status(
+            console,
+            session=store.session_id,
+            provider=settings.default_provider,
+            model=settings.default_model,
+            approval=settings.approval_mode,
+            workspace="trusted" if agent._trusted else "untrusted",
+            tokens=estimate_tokens(agent.messages),
+            state=blaze.state.value,
+            face=blaze.face,
+            git_line=git_oneline(agent.cwd),
+            todos=agent.todos.render(),
         )
-        todos = agent.todos.render()
-        if todos:
-            console.print(todos)
     elif command == "/approval":
         settings = _set_approval(settings, argument, console)
     elif command == "/provider":
@@ -196,14 +226,16 @@ async def _command(
         _show_skills(agent, console, command, argument)
     elif command == "/compact":
         summary = agent.compact_now()
+        console.print("  compacted", style=MUTED)
+        console.print()
         console.print(summary)
     elif command == "/export":
         destination = Path(argument).expanduser() if argument else None
         try:
             path = store.export_markdown(agent.messages, destination)
-            console.print(f"Exported to {path}")
+            console.print(f"  Exported to {path}", style=MUTED)
         except OSError as exc:
-            console.print(f"Export failed: {exc}", style="red")
+            console.print(f"Export failed: {exc}", style=ERROR)
     elif command == "/clear":
         store.replace_with_new()
         agent.replace_messages([])
@@ -211,7 +243,11 @@ async def _command(
     elif command == "/resume":
         await complete_menu(console, _resume_session(store, agent, console, dialog))
     else:
-        console.print(f"Unknown command: {command}", style="red")
+        hint = suggest_command(command)
+        if hint:
+            console.print(f"Unknown command: {command}. Did you mean {hint}?", style=ERROR)
+        else:
+            console.print(f"Unknown command: {command}", style=ERROR)
     return False, settings
 
 
@@ -223,7 +259,7 @@ def _set_approval(settings: Settings, argument: str, console: Console) -> Settin
         console.print("Usage: /approval on | /approval off")
         return settings
     if token not in APPROVAL_MODES:
-        console.print("Usage: /approval on | /approval off", style="red")
+        console.print("Usage: /approval on | /approval off", style=ERROR)
         return settings
     settings.approval_mode = token
     settings.save()
@@ -239,14 +275,14 @@ async def _switch_model(
 ) -> Settings:
     provider = settings.provider()
     if not provider.models:
-        console.print("No models configured. Use /provider to add one.", style="red")
+        console.print("No models configured. Use /provider to add one.", style=ERROR)
         return settings
     picked = await ask_index(
         session, console, provider.models, current=settings.default_model
     )
     settings.default_model = provider.models[picked - 1]
     settings.save()
-    console.print(f"Model: {settings.default_model}")
+    console.print(f"  Model: {settings.default_model}", style=MUTED)
     return settings
 
 
@@ -269,10 +305,10 @@ async def _resume_session(
     try:
         messages = store.resume(sessions[picked - 1].session_id)
     except (OSError, ValueError) as exc:
-        console.print(f"Could not resume session: {exc}", style="red")
+        console.print(f"Could not resume session: {exc}", style=ERROR)
         return
     agent.replace_messages(messages)
-    console.print(f"Resumed {store.session_id}.")
+    console.print(f"  Resumed {store.session_id}.", style=MUTED)
 
 
 def _interactive_approver(
@@ -293,14 +329,12 @@ def _interactive_approver(
 
 
 def _render_resumed_history(console: Console, messages: list[Message]) -> None:
-    from rich.text import Text
-
     for message in messages:
         if message.role == "user" and message.content:
             console.print()
             try:
                 prompt_text = Text()
-                prompt_text.append(f"blaze {blaze.face} ❯ ", style="bold cyan")
+                prompt_text.append(f"blaze {blaze.face} ❯ ", style=ACCENT)
                 prompt_text.append(message.content)
                 console.print(prompt_text)
             except Exception:
@@ -322,24 +356,31 @@ async def _ensure_trust(
 ) -> bool:
     if is_trusted(cwd):
         return True
-    console.print(f"Blazecode wants to work in:\n\n  {display_path(cwd)}\n")
-    console.print("Trust this directory?")
+    console.print()
+    console.print("  Blazecode wants to work in:", style=MUTED)
+    console.print()
+    console.print(f"    {display_path(cwd)}", style=ACCENT)
+    console.print()
+    console.print(
+        "  Trust this directory? Writes, edits, and shell stay blocked until you do.",
+        style=MUTED,
+    )
     try:
         picked = await ask_index(session, console, ["Trust", "Don't trust"])
     except (MenuCancelled, EOFError, KeyboardInterrupt):
         return False
     if picked != 1:
-        console.print("Workspace left untrusted. Mutating tools are blocked.", style="dim")
+        console.print(
+            "  Workspace left untrusted. Mutating tools are blocked.", style=MUTED
+        )
         return False
     try:
         grant_trust(cwd)
     except (OSError, ValueError) as exc:
-        console.print(f"Could not save trust: {exc}", style="red")
+        console.print(f"Could not save trust: {exc}", style=ERROR)
         return False
+    console.print("  Trusted.", style=MUTED)
     return True
-
-
-
 
 
 def _show_skills(
@@ -355,18 +396,25 @@ def _show_skills(
             matches = select_skills(catalog, name, limit=1)
             selected = matches[0] if matches else None
         if selected is None:
-            console.print(f"Unknown skill: {name}", style="red")
+            console.print(f"Unknown skill: {name}", style=ERROR)
             return
         try:
             body = load_skill(selected)
         except OSError as exc:
-            console.print(f"Could not load skill: {exc}", style="red")
+            console.print(f"Could not load skill: {exc}", style=ERROR)
             return
-        console.print(f"# {selected.name}\n{selected.description}\n\n{body}")
+        console.print(f"  {selected.name}", style=ACCENT)
+        console.print(f"  {selected.description}", style=MUTED)
+        console.print()
+        console.print(body)
         return
     if not catalog:
         console.print("No skills found.")
         return
     for skill in catalog:
-        console.print(f"{skill.name} ({skill.origin}): {skill.description}")
-
+        line = Text()
+        line.append(f"  {skill.name}", style=ACCENT)
+        line.append(f"  · {skill.origin}", style=MUTED)
+        console.print(line)
+        if skill.description:
+            console.print(f"    {skill.description}", style=MUTED)

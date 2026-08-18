@@ -94,4 +94,13 @@ def test_compaction_summary_preserves_goal_and_changes() -> None:
     assert "## Changes" in summary
     assert "app.py" in summary
     assert "## Failures" in summary
+    prior = summarize_history(
+        [
+            Message("system", "[context compacted]\n## Goal\nShip the endpoint"),
+            Message("user", "continue"),
+        ]
+    )
+    assert "## Decisions" in prior
+    assert "context compacted" in prior
+
 
