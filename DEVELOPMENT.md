@@ -38,15 +38,6 @@ Not planned, and not accidental omissions:
 
 If Blazecode needs a new capability, prefer a smaller existing path over a new subsystem.
 
-## Technical debt
-
-- Git toplevel lookup is repeated in prompts, trust, skills, and repo map. Share it only if a bug appears.
-- `llm.client.ToolResult` exists for the event union and is not emitted by the streamer.
-- `ModelInfo` carries unused capability fields; ranking uses substring boosts instead.
-- Approval mode still understands a few leftover legacy tokens at the manager boundary. Config migration already covers stored files.
-- `summarize_history` and `/compact` both write `[context compacted]` notes; keep those prefixes aligned.
-
-None of this needs a rewrite. Fix it when you are already in the file.
 
 ## Areas that need attention
 
@@ -59,8 +50,7 @@ None of this needs a rewrite. Fix it when you are already in the file.
 
 Only if they stay small:
 
-- A slightly richer `/status` without becoming a dashboard.
-- Export formats beyond Markdown.
-- A documented skill-authoring example in the repo.
+- A slightly richer `/status`.
+- A better skills system.
 
 If an idea needs a new runtime, a new config language, or a second agent loop, it does not belong here.
